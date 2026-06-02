@@ -22,7 +22,17 @@ jobs:
       - run: cargo test --verbose
 
   lint:
-    name: Lint
+    name: Lint (1.88.0)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.88.0
+        with:
+          components: clippy
+      - run: cargo clippy --all-targets -- -D clippy::all
+
+  lint-next:
+    name: Lint (stable)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
