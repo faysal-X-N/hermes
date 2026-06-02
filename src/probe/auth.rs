@@ -64,7 +64,7 @@ pub async fn probe_auth(ctx: &ProbeContext) -> Vec<ProbeFinding> {
                         category: "authentication".into(),
                         title: "Error response leaks internal details".into(),
                         target: url.clone(),
-                        evidence: truncate(&body_text, 120),
+                        evidence: crate::audit::rules::safe_truncate(&body_text, 120),
                         recommendation: "Return generic error messages, avoid leaking stack traces".into(),
                     });
                 }
@@ -114,12 +114,4 @@ pub async fn probe_auth(ctx: &ProbeContext) -> Vec<ProbeFinding> {
     }
 
     findings
-}
-
-fn truncate(text: &str, max_len: usize) -> String {
-    if text.len() <= max_len {
-        text.to_string()
-    } else {
-        format!("{}...", &text[..max_len])
-    }
 }

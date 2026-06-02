@@ -86,10 +86,12 @@ fn main() {
 
 fn write_output(content: &str, output: Option<&str>) {
     if let Some(path) = output {
-        let _ = fs::write(path, content);
-        println!("{}", content);
+        if let Err(e) = fs::write(path, content) {
+            eprintln!("hermes: failed to write output to {path}: {e}");
+        }
+        println!("{content}");
     } else {
-        println!("{}", content);
+        println!("{content}");
     }
 }
 
@@ -158,7 +160,9 @@ fn run_audit(path: &str, format: Option<&str>, output: Option<&str>) -> i32 {
                 all_findings.len(), critical, high, medium, low, info,
                 files_scanned, duration_ms, &all_findings,
             );
-            let _ = fs::write(out_path, plain);
+            if let Err(e) = fs::write(out_path, &plain) {
+                eprintln!("hermes: failed to write output to {out_path}: {e}");
+            }
         }
     }
 
@@ -224,7 +228,9 @@ async fn run_probe(url: &str, timeout: u64, format: Option<&str>, output: Option
                 &ctx.target_url, total, critical, high, medium, low, info,
                 duration_ms, &all_findings, &tools,
             );
-            let _ = fs::write(out_path, plain);
+            if let Err(e) = fs::write(out_path, &plain) {
+                eprintln!("hermes: failed to write output to {out_path}: {e}");
+            }
         }
     }
 

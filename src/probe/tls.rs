@@ -137,6 +137,9 @@ async fn connect_and_check_tls(host: &str, port: u16, timeout_secs: u64) -> Resu
             let suite = cs.suite();
             if suite == rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256
                 || suite == rustls::CipherSuite::TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384
+                || suite == rustls::CipherSuite::TLS13_AES_256_GCM_SHA384
+                || suite == rustls::CipherSuite::TLS13_AES_128_GCM_SHA256
+                || suite == rustls::CipherSuite::TLS13_CHACHA20_POLY1305_SHA256
             {
                 None
             } else {
@@ -197,24 +200,31 @@ fn check_expiry(expiry: &str) -> Option<String> {
 }
 
 fn extract_host(url: &str) -> String {
-    url.split("://")
-        .nth(1)
-        .unwrap_or(url)
-        .split(':')
-        .next()
-        .unwrap_or(url)
-        .split('/')
-        .next()
-        .unwrap_or(url)
-        .to_string()
+    let after_scheme = url.split("://").nth(1).unwrap_or(url);
+    let host_and_rest = after_scheme.split('/').next().unwrap_or(after_scheme);
+    if host_and_rest.starts_with('[') {
+        if let Some(bracket_end) = host_and_rest.find(']') {
+            return host_and_rest[1..bracket_end].to_string();
+        }
+    }
+    host_and_rest.split(':').next().unwrap_or(host_and_rest).to_string()
 }
 
 fn extract_port(url: &str) -> Option<u16> {
     let after_scheme = url.split("://").nth(1)?;
-    let host_port = after_scheme.split('/').next()?;
-    if let Some(port_str) = host_port.split(':').nth(1) {
-        port_str.parse().ok()
-    } else {
-        None
+    let host_and_rest = after_scheme.split('/').next()?;
+    if host_and_rest.starts_with('[') {
+        if let Some(bracket_end) = host_and_rest.find(']') {
+            let after_bracket = &host_and_rest[bracket_end + 1..];
+            if let Some(port_str) = after_bracket.strip_prefix(':') {
+                return port_str.parse().ok();
+            }
+        }
+    } else if let Some(port_str) = host_and_rest.rsplit(':').next() {
+        if port_str != host_and_rest {
+            return port_str.parse().ok();
+        }
     }
+    None
 }
+

@@ -63,11 +63,7 @@ fn make_dangerous_finding(
     pattern: &str,
     all_text: &str,
 ) -> Finding {
-    let evidence = if all_text.len() > 120 {
-        format!("{}...", &all_text[..120])
-    } else {
-        all_text.to_string()
-    };
+    let evidence = safe_truncate(all_text, 120);
     Finding {
         rule_id: "dangerous-command".into(),
         severity: Severity::High,
@@ -390,6 +386,17 @@ fn mask_sensitive(value: &str) -> String {
     let prefix = &value[..4];
     let suffix = &value[value.len() - 4..];
     format!("{}...{}", prefix, suffix)
+}
+
+pub fn safe_truncate(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        return text.to_string();
+    }
+    let mut end = max_len;
+    while end > 0 && !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!("{}...", &text[..end])
 }
 
 #[cfg(test)]
