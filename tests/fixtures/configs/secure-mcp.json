@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "secure-server": {
+      "command": "npx",
+      "args": ["-y", "@scope/server@1.0.0"],
+      "env": {
+        "API_KEY": "${MY_API_KEY}",
+        "SECRET": "${MY_SECRET}"
+      },
+      "url": "https://secure.example.com/mcp",
+      "timeout": 30,
+      "description": "A properly configured secure MCP server",
+      "allowedTools": ["read_file", "search_content"]
+    }
+  }
+}
