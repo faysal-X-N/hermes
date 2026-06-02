@@ -10,8 +10,8 @@ MCP Runtime Security Scanner & Compliance Auditor
 **Hermes** is a Rust-powered CLI tool for scanning MCP (Model Context Protocol) server configurations and probing running servers for security vulnerabilities.
 
 - **Static Audit**: Scan MCP config files for hardcoded secrets, dangerous commands, supply chain risks, and policy violations (15 rules)
-- **Runtime Probe**: Connect to live MCP servers to verify TLS, authentication, SSRF, session security, confused deputy, and path traversal (12 rules)
-- **Fuzz Testing**: Send malformed inputs (empty, oversized, SQL/cmd/prompt injection, path traversal) to discover crashes (7 tests)
+- **Runtime Probe**: Connect to live MCP servers to verify TLS, authentication, SSRF, session security, confused deputy, and path traversal (17 rules)
+- **Fuzz Testing**: Send malformed inputs (empty, oversized, SQL/cmd/prompt injection, path traversal) to discover crashes (8 tests)
 - **Policy Engine**: JSON policy files with rule toggles, severity thresholds, whitelist exceptions, and 4 built-in presets (basic/strict/enterprise/dengbao)
 - **Tamper-Proof Audit Chain**: HMAC-SHA256 chained audit records with verification and `--init-key`
 - **CI-Ready**: GitHub Action available, JSON/HTML/SARIF output, exit codes, and `--output` for pipeline integration
@@ -91,29 +91,146 @@ Add Hermes to your CI pipeline:
   uses: faysal-X-N/hermes@v0.2
   with:
     path: "."
-    severity: "high"
-```
 
-With Code Scanning integration (SARIF):
-
-```yaml
+# With Code Scanning (SARIF) integration:
 - name: Hermes MCP Security Scan
   uses: faysal-X-N/hermes@v0.2
   with:
     path: "."
     format: "sarif"
     upload-sarif: "true"
-```
 
-Using dengbao preset for China compliance:
-
-```yaml
+# China compliance (dengbao):
 - name: Hermes Dengbao Audit
   uses: faysal-X-N/hermes@v0.2
   with:
     path: "."
     preset: "dengbao"
 ```
+
+**Inputs:**
+
+| Input | Default | Description |
+|-------|---------|-------------|
+| `path` | `.` | Path to scan |
+| `format` | `sarif` | Output: json / html / html-management / sarif |
+| `severity` | `high` | Min severity: info / low / medium / high / critical |
+| `preset` | — | Built-in preset: basic / strict / enterprise / dengbao |
+| `policy` | — | Path to JSON policy file |
+| `fail-on-findings` | `true` | Fail the job if findings detected |
+| `upload-sarif` | `true` | Upload SARIF to GitHub Code Scanning |
+
+## Policy File
+
+Hermes uses JSON policy files (`.hermes-policy.json`) for fine-grained control:
+
+```json
+{
+  "version": 1,
+  "name": "Enterprise MCP Security Policy",
+  "min_severity": "high",
+  "rules": {
+    "hardcoded-api-key": { "enabled": true },
+    "no-tls": { "enabled": true, "severity": "critical" },
+    "auto-approve": { "enabled": false }
+  },
+  "exceptions": [
+    {
+      "rule": "dangerous-tools",
+      "tool": "write_file",
+      "reason": "Business requirement with secondary approval",
+      "expires": "2026-12-31"
+    }
+  ]
+}
+```
+
+**Generate from template:**
+
+```bash
+hermes policy --template enterprise   # Full rule set
+hermes policy --template basic        # Critical only
+hermes policy --template strict       # All rules, low threshold
+hermes policy --template dengbao      # China compliance
+hermes policy                         # Default (medium severity)
+```
+
+**Rule semantics:**
+- Rules NOT in the `rules` map default to **enabled** (policy file) or **disabled** (preset mode)
+- `enabled: false` silences a rule entirely
+- `severity: "critical"` overrides a rule's default severity
+- Exceptions use `rule` + optional `tool`/`path` filters with expiry dates
+- `--preset` and `--policy` are mutually exclusive
+
+## Audit Chain
+
+Tamper-proof audit records with HMAC-SHA256:
+
+```bash
+# Generate a key (once)
+hermes audit --init-key
+
+# Scan with audit chain
+hermes audit . --audit-key .hermes/audit.key
+# → saves .hermes/chain-audit-20260602T120000Z.json
+
+# Verify chain integrity
+hermes verify .hermes/chain-audit-*.json --audit-key .hermes/audit.key
+
+# Output: "Chain verified: 7 records — VALID"
+# Tampered: "Chain is INVALID — records may have been tampered with"
+```
+
+**Chain structure:** Hₙ = HMAC-SHA256(Hₙ₋₁, "ts|rule|severity|target|finding|recommendation")
+
+## Auto-Fix
+
+Automatically fix common issues in MCP config files:
+
+```bash
+# Preview what would be fixed
+hermes audit . --fix --dry-run
+
+# Apply fixes in-place
+hermes audit . --fix
+```
+
+**What `--fix` repairs:**
+- Hardcoded API keys → `${ENV_VAR}` references
+- Hardcoded passwords → environment variable references
+- `http://` URLs → `https://`
+- Exposed environment variable values → `${VAR}` references
+
+## Fuzz Testing
+
+Test MCP server robustness with malformed inputs:
+
+```bash
+# Run all fuzz tests
+hermes fuzz https://mcp.example.com
+
+# With custom timeout
+hermes fuzz https://mcp.example.com --timeout 60
+```
+
+**Fuzz categories:**
+- Empty/null/missing inputs (FZ-01)
+- Oversized payloads (1MB+) (FZ-02)
+- Control characters (\\x00, \\x1b) (FZ-03)
+- Path traversal injection (FZ-04)
+- SQL injection payloads (FZ-05)
+- Command injection (`$(whoami)`, `` `id` ``) (FZ-06)
+- Prompt injection ("ignore previous instructions") (FZ-07)
+- Crash detection (5xx/timeout/connection errors) (FZ-08)
+
+## Presets
+
+| Preset | Severity | Rules | Use Case |
+|--------|----------|-------|----------|
+| `basic` | Critical only | 3 | Quick CI gate |
+| `strict` | Low+ | 15 | Full security audit |
+| `enterprise` | Medium+ | 15 | Production compliance |
+| `dengbao` | High+ | 8 | China 等保 2.0 Level 2 |
 
 ## Commands
 
@@ -288,27 +405,77 @@ Score = max(0, 100 − 25×Critical − 10×High − 3×Medium)
 
 ---
 
+## Common Workflows
+
+### CI Pipeline Gate
+
+```bash
+# Fail on any critical finding
+hermes audit . --preset basic --format json
+
+# GitHub Actions: fail on high+
+hermes audit . --min-severity high
+```
+
+### Full Security Audit
+
+```bash
+# Comprehensive scan with HTML management report
+hermes audit . --preset strict --format html-management > audit-report.html
+```
+
+### Compliance Audit with Audit Trail
+
+```bash
+hermes audit --init-key
+hermes audit . --preset enterprise --audit-key .hermes/audit.key --output result.json
+hermes verify .hermes/chain-audit-*.json --audit-key .hermes/audit.key
+```
+
+### Server Security Probe
+
+```bash
+# Full probe with SARIF for Code Scanning
+hermes probe https://mcp.example.com --format sarif --timeout 60
+```
+
+### Custom Policy
+
+```bash
+hermes policy --template enterprise
+# Edit .hermes-policy.json with your customizations
+hermes audit . --policy .hermes-policy.json
+```
+
+---
+
 ## Project Structure
 
 ```
 src/
-├── main.rs              # CLI entry point (clap derive) — 5 subcommands
+├── main.rs              # CLI entry point (clap derive) — 6 commands
 ├── audit/
 │   ├── parser.rs        # MCP config file parser
 │   ├── scanner.rs       # Directory/glob/stdin scanner
-│   ├── rules.rs         # SC01–SC14 scan rules (11 active)
+│   ├── rules.rs         # SC01–SC15 scan rules (15 active)
+│   ├── fixer.rs         # --fix auto-remediation
 │   └── types.rs         # Finding, Severity, scoring
 ├── probe/
-│   ├── tls.rs           # TLS certificate verification (rustls)
+│   ├── tls.rs           # TLS certificate verification
 │   ├── auth.rs          # Authentication probing
 │   ├── tools.rs         # Tool enumeration + dangerous detection
 │   ├── ssrf.rs          # SSRF vulnerability probe
-│   ├── session.rs       # Session ID predictability probe
+│   ├── redirect.rs      # SSRF redirect detection
+│   ├── session.rs       # Session ID predictability
+│   ├── replay.rs        # Session replay detection
+│   ├── fixation.rs      # Session fixation probe
 │   ├── traversal.rs     # Path traversal probe
+│   ├── deputy.rs        # Confused deputy detection
+│   ├── passthrough.rs   # Token passthrough + scope minimization
 │   └── types.rs         # ProbeContext, ProbeFinding
 ├── fuzz/
-│   ├── engine.rs        # Fuzz test engine (FZ-01/02/03/04/08)
-│   ├── payloads.rs      # Malformed payload generators
+│   ├── engine.rs        # Fuzz test engine (FZ-01~08)
+│   ├── payloads.rs      # 6 categories of malformed payloads
 │   └── types.rs         # FuzzResult, FuzzContext
 ├── chain/
 │   ├── hmac.rs          # HMAC-SHA256 audit chain build & verify
@@ -316,13 +483,14 @@ src/
 │   └── types.rs         # AuditRecord, AuditChain
 ├── policy/
 │   ├── parser.rs        # JSON policy file parser
-│   ├── engine.rs        # Policy filter engine
-│   ├── presets.rs       # Built-in presets (dengbao)
-│   └── types.rs         # PolicyConfig, BuiltinPreset
+│   ├── engine.rs        # Policy filter + exception matching
+│   ├── presets.rs       # 4 built-in presets (basic/strict/enterprise/dengbao)
+│   └── types.rs         # PolicyConfig, Exception, BuiltinPreset
 └── report/
     ├── terminal.rs      # Colored terminal output
     ├── json.rs          # JSON format output
-    └── html.rs          # Self-contained HTML report output
+    ├── html.rs          # Technical + management HTML reports
+    └── sarif.rs         # SARIF v2.1.0 output
 ```
 
 ---
