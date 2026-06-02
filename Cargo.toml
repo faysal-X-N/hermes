@@ -4,6 +4,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 description = "MCP Runtime Security Scanner & Compliance Auditor"
+rust-version = "1.88.0"
 
 [[bin]]
 name = "hermes"

@@ -5,7 +5,7 @@ MCP Runtime Security Scanner & Compliance Auditor
 [![CI](https://github.com/faysal-X-N/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/faysal-X-N/hermes/actions)
 [![Crates.io](https://img.shields.io/crates/v/hermes.svg)](https://crates.io/crates/hermes)
 [![License](https://img.shields.io/crates/l/hermes.svg)](LICENSE)
-[![Rust](https://img.shields.io/badge/Rust-1.85.0+-blue?logo=rust)](https://blog.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/Rust-1.88.0+-blue?logo=rust)](https://blog.rust-lang.org/)
 
 **Hermes** is a Rust-powered CLI tool for scanning MCP (Model Context Protocol) server configurations and probing running servers for security vulnerabilities.
 
@@ -218,7 +218,7 @@ src/
 
 ## Requirements
 
-- Rust 1.85.0 or later
+- Rust 1.88.0 or later
 - No external runtime dependencies
 
 ---
