@@ -13,8 +13,23 @@ pub struct PolicyConfig {
     pub min_severity: Option<String>,
     #[serde(default)]
     pub rules: HashMap<String, RuleEntry>,
-    #[serde(skip)]
+    #[serde(default)]
+    pub exceptions: Vec<Exception>,
+    #[serde(skip, default)]
     pub preset_mode: bool,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Exception {
+    pub rule: String,
+    #[serde(default)]
+    pub tool: Option<String>,
+    #[serde(default)]
+    pub path: Option<String>,
+    #[serde(default)]
+    pub reason: String,
+    #[serde(default)]
+    pub expires: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -54,6 +69,37 @@ impl PolicyConfig {
             .get(rule_id)
             .and_then(|r| r.severity.as_ref())
             .and_then(|s| parse_severity(s))
+    }
+
+    pub fn is_exempted(&self, rule_id: &str, tool: Option<&str>, file: &str) -> bool {
+        self.exceptions.iter().any(|e| {
+            if e.rule != rule_id {
+                return false;
+            }
+            if let Some(ref tool_name) = e.tool {
+                if let Some(t) = tool {
+                    if t != tool_name {
+                        return false;
+                    }
+                } else {
+                    return false;
+                }
+            }
+            if let Some(ref path) = e.path {
+                if !file.contains(path) {
+                    return false;
+                }
+            }
+            if let Some(ref expiry) = e.expires {
+                if let Ok(exp_date) = chrono::NaiveDate::parse_from_str(expiry, "%Y-%m-%d") {
+                    let today = chrono::Utc::now().naive_utc().date();
+                    if today > exp_date {
+                        return false;
+                    }
+                }
+            }
+            true
+        })
     }
 }
 

@@ -2,6 +2,43 @@
 use crate::audit::types::{Finding, Severity};
 use console::{style, Color};
 
+#[derive(Clone)]
+pub struct ScanStats {
+    pub total: usize,
+    pub critical: usize,
+    pub high: usize,
+    pub medium: usize,
+    pub low: usize,
+    pub info: usize,
+    pub duration_ms: u64,
+    pub items_scanned: String,
+    pub files_scanned: usize,
+}
+
+impl ScanStats {
+    pub fn from_counts(
+        total: usize,
+        critical: usize,
+        high: usize,
+        medium: usize,
+        low: usize,
+        info: usize,
+        duration_ms: u64,
+    ) -> Self {
+        Self {
+            total,
+            critical,
+            high,
+            medium,
+            low,
+            info,
+            duration_ms,
+            items_scanned: String::new(),
+            files_scanned: 0,
+        }
+    }
+}
+
 pub fn print_header(title: &str, command: &str) {
     println!(
         "{} {} {}",
@@ -28,70 +65,37 @@ pub fn print_score(score: u32, grade: &str) {
     );
 }
 
-pub fn print_summary_no_score(
-    total: usize,
-    critical: usize,
-    high: usize,
-    medium: usize,
-    low: usize,
-    info: usize,
-    duration_ms: u64,
-    items_scanned: &str,
-) {
+pub fn print_summary_no_score(stats: &ScanStats) {
     println!(
         "  {}  {} total ({} {}  {} {}  {} {}  {} {}  {} {})",
         style("Findings:").dim(),
-        style(total).bold(),
-        style(critical).red().bold(),
+        style(stats.total).bold(),
+        style(stats.critical).red().bold(),
         style("critical").red(),
-        style(high).yellow().bold(),
+        style(stats.high).yellow().bold(),
         style("high").yellow(),
-        style(medium).blue().bold(),
+        style(stats.medium).blue().bold(),
         style("medium").blue(),
-        style(low).dim().bold(),
+        style(stats.low).dim().bold(),
         style("low").dim(),
-        style(info).green().bold(),
+        style(stats.info).green().bold(),
         style("info").green(),
     );
-    if !items_scanned.is_empty() {
-        println!("  {}  {}", style("Items:").dim(), items_scanned);
+    if !stats.items_scanned.is_empty() {
+        println!("  {}  {}", style("Items:").dim(), stats.items_scanned);
     }
-    println!("  {}  {}ms", style("Duration:").dim(), duration_ms);
+    println!("  {}  {}ms", style("Duration:").dim(), stats.duration_ms);
     println!();
 }
 
-pub fn print_audit_summary(
-    total: usize,
-    critical: usize,
-    high: usize,
-    medium: usize,
-    low: usize,
-    info: usize,
-    files_scanned: usize,
-    duration_ms: u64,
-) {
-    print_summary_no_score(
-        total,
-        critical,
-        high,
-        medium,
-        low,
-        info,
-        duration_ms,
-        &format!("{files_scanned} files"),
-    );
+pub fn print_audit_summary(stats: &ScanStats) {
+    let mut s = stats.clone();
+    s.items_scanned = format!("{} files", stats.files_scanned);
+    print_summary_no_score(&s);
 }
 
-pub fn print_probe_summary(
-    total: usize,
-    critical: usize,
-    high: usize,
-    medium: usize,
-    low: usize,
-    info: usize,
-    duration_ms: u64,
-) {
-    print_summary_no_score(total, critical, high, medium, low, info, duration_ms, "");
+pub fn print_probe_summary(stats: &ScanStats) {
+    print_summary_no_score(stats);
 }
 
 pub fn print_audit_findings(findings: &[Finding]) {
@@ -185,14 +189,7 @@ pub fn build_audit_report(
     path: &str,
     score: u32,
     grade: &str,
-    total: usize,
-    critical: usize,
-    high: usize,
-    medium: usize,
-    low: usize,
-    info: usize,
-    files_scanned: usize,
-    duration_ms: u64,
+    stats: &ScanStats,
     findings: &[Finding],
 ) -> String {
     use std::fmt::Write;
@@ -203,11 +200,12 @@ pub fn build_audit_report(
     writeln!(buf, "  Score:  {score}/100  ({grade})").ok();
     writeln!(
         buf,
-        "  Findings:  {total} total ({critical} critical  {high} high  {medium} medium  {low} low  {info} info)"
+        "  Findings:  {total} total ({critical} critical  {high} high  {medium} medium  {low} low  {info} info)",
+        total = stats.total, critical = stats.critical, high = stats.high, medium = stats.medium, low = stats.low, info = stats.info
     )
     .ok();
-    writeln!(buf, "  Items:  {files_scanned} files").ok();
-    writeln!(buf, "  Duration:  {duration_ms}ms").ok();
+    writeln!(buf, "  Items:  {} files", stats.files_scanned).ok();
+    writeln!(buf, "  Duration:  {}ms", stats.duration_ms).ok();
     writeln!(buf).ok();
     for f in findings {
         let sev = match f.severity {
@@ -239,13 +237,7 @@ pub fn build_audit_report(
 
 pub fn build_probe_report(
     target: &str,
-    total: usize,
-    critical: usize,
-    high: usize,
-    medium: usize,
-    low: usize,
-    info: usize,
-    duration_ms: u64,
+    stats: &ScanStats,
     findings: &[super::super::probe::types::ProbeFinding],
     tools: &[String],
 ) -> String {
@@ -256,10 +248,11 @@ pub fn build_probe_report(
     writeln!(buf).ok();
     writeln!(
         buf,
-        "  Findings:  {total} total ({critical} critical  {high} high  {medium} medium  {low} low  {info} info)"
+        "  Findings:  {total} total ({critical} critical  {high} high  {medium} medium  {low} low  {info} info)",
+        total = stats.total, critical = stats.critical, high = stats.high, medium = stats.medium, low = stats.low, info = stats.info
     )
     .ok();
-    writeln!(buf, "  Duration:  {duration_ms}ms").ok();
+    writeln!(buf, "  Duration:  {}ms", stats.duration_ms).ok();
     writeln!(buf).ok();
     if !tools.is_empty() {
         writeln!(buf, "  Tools discovered ({}):", tools.len()).ok();

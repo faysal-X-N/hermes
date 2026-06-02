@@ -5,3 +5,4 @@ AI规则_宪法.md
 REQUIREMENTS.md
 tmp_*
 rust-toolchain.toml
+.cargo/

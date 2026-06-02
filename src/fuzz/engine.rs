@@ -41,6 +41,30 @@ pub async fn run_fuzz(ctx: &FuzzContext, test_ids: &[&str]) -> Vec<FuzzResult> {
                     }
                 }
             }
+            "FZ-07" => {
+                for payload in payloads::prompt_injection_payloads() {
+                    for tool in &tools {
+                        let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
+                        results.push(result);
+                    }
+                }
+            }
+            "FZ-05" => {
+                for payload in payloads::sql_injection_payloads() {
+                    for tool in &tools {
+                        let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
+                        results.push(result);
+                    }
+                }
+            }
+            "FZ-06" => {
+                for payload in payloads::command_injection_payloads() {
+                    for tool in &tools {
+                        let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
+                        results.push(result);
+                    }
+                }
+            }
             _ => {
                 results.push(FuzzResult {
                     test_id: test_id.to_string(),

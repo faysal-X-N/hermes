@@ -1,4 +1,9 @@
 pub mod auth;
+pub mod deputy;
+pub mod fixation;
+pub mod passthrough;
+pub mod redirect;
+pub mod replay;
 pub mod session;
 pub mod ssrf;
 pub mod tls;

@@ -9,13 +9,12 @@ MCP Runtime Security Scanner & Compliance Auditor
 
 **Hermes** is a Rust-powered CLI tool for scanning MCP (Model Context Protocol) server configurations and probing running servers for security vulnerabilities.
 
-- **Static Audit**: Scan MCP config files for hardcoded secrets, dangerous commands, and policy violations
-- **Runtime Probe**: Connect to live MCP servers to verify TLS, authentication, SSRF, path traversal, and session security
-- **Fuzz Testing**: Send malformed inputs to discover crashes and robustness issues
-- **Policy Engine**: Filter findings by severity, enable/disable rules, built-in `--preset dengbao` for China compliance
-- **Tamper-Proof Audit Chain**: HMAC-SHA256 chained audit records with verification
-- **Fast**: Built with Rust, single binary, no runtime dependencies
-- **CI-Ready**: JSON/HTML output, exit codes, and `--output` for pipeline integration
+- **Static Audit**: Scan MCP config files for hardcoded secrets, dangerous commands, supply chain risks, and policy violations (15 rules)
+- **Runtime Probe**: Connect to live MCP servers to verify TLS, authentication, SSRF, session security, confused deputy, and path traversal (12 rules)
+- **Fuzz Testing**: Send malformed inputs (empty, oversized, SQL/cmd/prompt injection, path traversal) to discover crashes (7 tests)
+- **Policy Engine**: JSON policy files with rule toggles, severity thresholds, whitelist exceptions, and 4 built-in presets (basic/strict/enterprise/dengbao)
+- **Tamper-Proof Audit Chain**: HMAC-SHA256 chained audit records with verification and `--init-key`
+- **CI-Ready**: GitHub Action available, JSON/HTML/SARIF output, exit codes, and `--output` for pipeline integration
 
 [Installation](#installation) · [Quick Start](#quick-start) · [Commands](#commands) · [Scan Rules](#scan-rules) · [License](#license)
 
@@ -83,7 +82,38 @@ hermes verify .hermes/chain-audit-*.json --audit-key .hermes/audit.key
 hermes report result.json --format html
 ```
 
----
+## GitHub Action
+
+Add Hermes to your CI pipeline:
+
+```yaml
+- name: Hermes MCP Security Scan
+  uses: faysal-X-N/hermes@v0.2
+  with:
+    path: "."
+    severity: "high"
+```
+
+With Code Scanning integration (SARIF):
+
+```yaml
+- name: Hermes MCP Security Scan
+  uses: faysal-X-N/hermes@v0.2
+  with:
+    path: "."
+    format: "sarif"
+    upload-sarif: "true"
+```
+
+Using dengbao preset for China compliance:
+
+```yaml
+- name: Hermes Dengbao Audit
+  uses: faysal-X-N/hermes@v0.2
+  with:
+    path: "."
+    preset: "dengbao"
+```
 
 ## Commands
 
@@ -94,22 +124,27 @@ hermes report result.json --format html
 | `hermes fuzz <url>` | Fuzz-test a MCP server with malformed inputs |
 | `hermes verify <file>` | Verify HMAC audit chain integrity |
 | `hermes report <file>` | Re-render a JSON result as formatted report |
+| `hermes policy` | Generate a default .hermes-policy.json file |
 
 ### Flags
 
 | Flag | Description |
 |------|-------------|
 | `--format json` | Output as JSON |
-| `--format html` | Output as self-contained HTML report |
+| `--format html` | Output as technical HTML report |
+| `--format html-management` | Output as management HTML report (charts + compliance) |
+| `--format sarif` | Output as SARIF v2.1.0 (GitHub Code Scanning) |
 | `--output <file>` | Write output to file |
 | `--verbose` | Verbose output to stderr |
 | `--no-color` | Disable colored output |
 | `--timeout <s>` | Probe/Fuzz timeout in seconds (default: 30) |
 | `--policy <file>` | Load external JSON policy file |
-| `--preset <name>` | Built-in policy preset (`dengbao`) |
+| `--preset <name>` | Built-in policy preset (dengbao/basic/strict/enterprise) |
 | `--min-severity <level>` | Minimum severity to show (info/low/medium/high/critical) |
 | `--audit-key <file>` | HMAC audit chain key file |
 | `--init-key` | Generate a new audit chain key |
+| `--fix` | Auto-fix fixable findings in-place |
+| `--fix --dry-run` | Preview fixes without modifying files |
 
 ### Exit Codes
 
@@ -123,7 +158,7 @@ hermes report result.json --format html
 
 ## Scan Rules
 
-### Static Audit (SC)
+### Static Audit (15 rules)
 
 | ID | Rule | Severity |
 |----|------|----------|
@@ -135,11 +170,15 @@ hermes report result.json --format html
 | SC-06 | `no-authentication` | High |
 | SC-07 | `bind-public-interface` | High |
 | SC-08 | `auto-approve` | High |
+| SC-09 | `no-timeout` | Low |
+| SC-10 | `unpinned-package` | Medium |
 | SC-11 | `env-secret-leak` | High |
 | SC-12 | `sensitive-file-args` | Medium |
+| SC-13 | `missing-description` | Info |
 | SC-14 | `unsafe-filesystem` | High |
+| SC-15 | `supply-chain-risk` | Medium |
 
-### Runtime Probe (PR)
+### Runtime Probe (12 rules)
 
 | ID | Rule | Severity |
 |----|------|----------|
@@ -151,11 +190,17 @@ hermes report result.json --format html
 | PR-06 | `tools-enumeration` | Info |
 | PR-07 | `dangerous-tools` | High |
 | PR-08 | `ssrf-probe` | Critical |
+| PR-09 | `ssrf-redirect` | High |
 | PR-10 | `session-predictability` | High |
+| PR-11 | `session-replay` | High |
+| PR-12 | `session-fixation` | Medium |
 | PR-13 | `path-traversal` | High |
+| PR-14 | `confused-deputy` | Critical |
+| PR-15 | `token-passthrough` | Critical |
+| PR-16 | `scope-minimization` | Medium |
 | PR-17 | `health-check` | Info |
 
-### Fuzz Tests (FZ)
+### Fuzz Tests (7 tests)
 
 | ID | Test | Severity |
 |----|------|----------|
@@ -163,6 +208,9 @@ hermes report result.json --format html
 | FZ-02 | `oversized-input` | Medium |
 | FZ-03 | `special-chars` | Medium |
 | FZ-04 | `path-injection` | High |
+| FZ-05 | `sql-injection` | High |
+| FZ-06 | `command-injection` | High |
+| FZ-07 | `prompt-injection` | Medium |
 | FZ-08 | `crash-detect` | High |
 
 ### Scoring

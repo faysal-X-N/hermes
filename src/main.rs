@@ -23,12 +23,32 @@ const P0_RULES: &[&str] = &[
     "env-secret-leak",
     "sensitive-file-args",
     "unsafe-filesystem",
+    "unpinned-package",
+    "supply-chain-risk",
+    "no-timeout",
+    "missing-description",
+];
+
+const P0_RULES_RICH: &[(&str, &str, &str)] = &[
+    ("hardcoded-api-key", "Hardcoded API key detected", "Replace with ${ENV_VAR}"),
+    ("hardcoded-password", "Hardcoded password detected", "Replace with ${ENV_VAR}"),
+    ("dangerous-command", "Dangerous shell command", "Remove pipe-to-shell patterns"),
+    ("overly-permissive", "Overly permissive tool access", "Explicitly list allowed tools"),
+    ("no-tls", "No TLS encryption", "Use HTTPS URL"),
+    ("no-authentication", "No authentication configured", "Add apiKey or Authorization header"),
+    ("bind-public-interface", "Server bound to public interface", "Bind to 127.0.0.1"),
+    ("auto-approve", "Auto-approval with wildcard", "Remove * from autoApprove"),
+    ("env-secret-leak", "Environment variable leaks secret", "Use ${VAR} reference"),
+    ("sensitive-file-args", "Sensitive file in startup args", "Use environment variables"),
+    ("unsafe-filesystem", "Filesystem root directory access", "Restrict to specific directories"),
 ];
 
 #[derive(ValueEnum, Clone, Debug)]
 enum Format {
     Json,
     Html,
+    HtmlManagement,
+    Sarif,
 }
 
 #[derive(Parser)]
@@ -71,6 +91,12 @@ enum Commands {
 
         #[arg(long = "min-severity", help = "Minimum severity to show (info/low/medium/high/critical)")]
         min_severity: Option<String>,
+
+        #[arg(long, help = "Auto-fix fixable findings in-place")]
+        fix: bool,
+
+        #[arg(long, requires = "fix", help = "Preview fixes without writing")]
+        dry_run: bool,
     },
 
     #[command(about = "Runtime security probe of a running MCP Server")]
@@ -117,6 +143,12 @@ enum Commands {
         #[arg(help = "Path to JSON scan result file")]
         path: String,
     },
+
+    #[command(about = "Generate a default .hermes-policy.json file")]
+    Policy {
+        #[arg(long, help = "Template preset (dengbao, basic, strict, enterprise)")]
+        template: Option<String>,
+    },
 }
 
 fn main() {
@@ -137,12 +169,16 @@ fn main() {
     }
 
     let exit_code = match cli.command {
-        Commands::Audit { path, audit_key, init_key, policy_file, preset, min_severity } => {
+        Commands::Audit { path, audit_key, init_key, policy_file, preset, min_severity, fix, dry_run } => {
             if init_key {
                 run_init_key(audit_key.as_deref())
             } else if let Some(p) = path {
                 let policy = resolve_policy(policy_file.as_deref(), preset.as_deref(), min_severity.as_deref());
-                run_audit(&p, cli.format, cli.verbose, cli.output.as_deref(), audit_key.as_deref(), &policy)
+                let args = AuditArgs {
+                    path: &p, format: cli.format, verbose: cli.verbose, output: cli.output.as_deref(),
+                    audit_key: audit_key.as_deref(), policy: &policy, fix, dry_run,
+                };
+                run_audit(&args)
             } else {
                 eprintln!("hermes: missing required argument <PATH>");
                 1
@@ -163,6 +199,9 @@ fn main() {
         Commands::Report { path } => {
             run_report(&path, cli.format, cli.verbose, cli.output.as_deref())
         }
+        Commands::Policy { template } => {
+            run_policy_init(template.as_deref())
+        }
     };
 
     process::exit(exit_code);
@@ -177,7 +216,26 @@ fn write_output(content: &str, output: Option<&str>) {
     println!("{content}");
 }
 
-fn run_audit(path: &str, format: Option<Format>, verbose: bool, output: Option<&str>, audit_key: Option<&str>, policy: &Option<policy::types::PolicyConfig>) -> i32 {
+struct AuditArgs<'a> {
+    path: &'a str,
+    format: Option<Format>,
+    verbose: bool,
+    output: Option<&'a str>,
+    audit_key: Option<&'a str>,
+    policy: &'a Option<policy::types::PolicyConfig>,
+    fix: bool,
+    dry_run: bool,
+}
+
+fn run_audit(args: &AuditArgs) -> i32 {
+    let path = args.path;
+    let format = args.format.as_ref();
+    let verbose = args.verbose;
+    let output = args.output;
+    let audit_key = args.audit_key;
+    let policy = args.policy;
+    let fix = args.fix;
+    let dry_run = args.dry_run;
     let start = Instant::now();
     let result = audit::scanner::scan_path(path);
 
@@ -249,23 +307,33 @@ fn run_audit(path: &str, format: Option<Format>, verbose: bool, output: Option<&
     } else if matches!(format, Some(Format::Html)) {
         let html = report::html::build_html_audit(path, &all_findings, score, &grade);
         write_output(&html, output);
+    } else if matches!(format, Some(Format::Sarif)) {
+        let sarif = report::sarif::build_sarif(path, &all_findings, P0_RULES_RICH);
+        write_output(&sarif, output);
+    } else if matches!(format, Some(Format::HtmlManagement)) {
+        let html = report::html::build_html_management(path, &all_findings, score, &grade, files_scanned, duration_ms);
+        write_output(&html, output);
     } else {
         report::terminal::print_header(path, "Audit");
         report::terminal::print_score(score, &grade);
-        report::terminal::print_audit_summary(
-            all_findings.len(), critical, high, medium, low, info, files_scanned, duration_ms,
-        );
+        let stats = report::terminal::ScanStats {
+            total: all_findings.len(), critical, high, medium, low, info,
+            duration_ms, items_scanned: String::new(), files_scanned,
+        };
+        report::terminal::print_audit_summary(&stats);
         report::terminal::print_audit_findings(&all_findings);
         if let Some(out_path) = output {
             let plain = report::terminal::build_audit_report(
-                path, score, &grade,
-                all_findings.len(), critical, high, medium, low, info,
-                files_scanned, duration_ms, &all_findings,
+                path, score, &grade, &stats, &all_findings,
             );
             if let Err(e) = fs::write(out_path, &plain) {
                 eprintln!("hermes: failed to write output to {out_path}: {e}");
             }
         }
+    }
+
+    if fix || dry_run {
+        audit::fixer::apply_fixes_from_findings(&all_findings, dry_run);
     }
 
     if let Some(key_path) = audit_key {
@@ -293,9 +361,17 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     let ssrf_fut = probe::ssrf::probe_ssrf(&ctx);
     let traversal_fut = probe::traversal::probe_path_traversal(&ctx);
     let session_fut = probe::session::probe_session(&ctx);
+    let redirect_fut = probe::redirect::probe_ssrf_redirect(&ctx);
+    let replay_fut = probe::replay::probe_session_replay(&ctx);
+    let fixation_fut = probe::fixation::probe_session_fixation(&ctx);
+    let deputy_fut = probe::deputy::probe_confused_deputy(&ctx);
+    let passthrough_fut = probe::passthrough::probe_token_passthrough(&ctx);
+    let scope_fut = probe::passthrough::probe_scope_minimization(&ctx);
 
-    let (tls_result, auth_result, tools_result, ssrf_result, traversal_result, session_result) =
-        tokio::join!(tls_fut, auth_fut, tools_fut, ssrf_fut, traversal_fut, session_fut);
+    let (tls_result, auth_result, tools_result, ssrf_result, traversal_result, session_result,
+         redirect_result, replay_result, fixation_result, deputy_result, passthrough_result, scope_result) =
+        tokio::join!(tls_fut, auth_fut, tools_fut, ssrf_fut, traversal_fut, session_fut,
+                     redirect_fut, replay_fut, fixation_fut, deputy_fut, passthrough_fut, scope_fut);
 
     all_findings.extend(tls_result);
     all_findings.extend(auth_result);
@@ -303,6 +379,12 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     all_findings.extend(ssrf_result);
     all_findings.extend(traversal_result);
     all_findings.extend(session_result);
+    all_findings.extend(redirect_result);
+    all_findings.extend(replay_result);
+    all_findings.extend(fixation_result);
+    all_findings.extend(deputy_result);
+    all_findings.extend(passthrough_result);
+    all_findings.extend(scope_result);
     let tools = tools_result.tools;
 
     let duration_ms = start.elapsed().as_millis() as u64;
@@ -351,14 +433,15 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     } else {
         report::terminal::print_header(&ctx.target_url, "Probe");
         report::terminal::print_score(score, &grade);
-        report::terminal::print_probe_summary(
+        let probe_stats = report::terminal::ScanStats {
             total, critical, high, medium, low, info, duration_ms,
-        );
+            items_scanned: String::new(), files_scanned: 0,
+        };
+        report::terminal::print_probe_summary(&probe_stats);
         report::terminal::print_probe_findings(&all_findings, &tools);
         if let Some(out_path) = output {
             let plain = report::terminal::build_probe_report(
-                &ctx.target_url, total, critical, high, medium, low, info,
-                duration_ms, &all_findings, &tools,
+                &ctx.target_url, &probe_stats, &all_findings, &tools,
             );
             if let Err(e) = fs::write(out_path, &plain) {
                 eprintln!("hermes: failed to write output to {out_path}: {e}");
@@ -489,7 +572,7 @@ fn run_verify(path: &str, audit_key: Option<&str>, verbose: bool) -> i32 {
                 chain.records.len()
             );
             0
-        }
+}
         Ok((chain, false)) => {
             if verbose {
                 eprintln!(
@@ -532,21 +615,17 @@ fn resolve_policy(
             let preset = policy::presets::dengbao_preset();
             let mut rules = std::collections::HashMap::new();
             for (rule_id, enabled) in &preset.rule_state {
-                rules.insert(
-                    rule_id.clone(),
-                    policy::types::RuleEntry { enabled: *enabled, severity: None },
-                );
+                rules.insert(rule_id.clone(), policy::types::RuleEntry { enabled: *enabled, severity: None });
             }
-            Some(policy::types::PolicyConfig {
-                version: 1,
-                name: "dengbao".into(),
+            Some(policy::types::PolicyConfig { version: 1, name: "dengbao".into(),
                 min_severity: sev.or_else(|| preset.min_severity.map(|s| policy::types::severity_to_str(&s).to_string())),
-                rules,
-                preset_mode: true,
-            })
+                rules, exceptions: vec![], preset_mode: true })
         }
+        (None, Some("basic")) => presets_helper(&policy::presets::basic_preset(), sev),
+        (None, Some("strict")) => presets_helper(&policy::presets::strict_preset(), sev),
+        (None, Some("enterprise")) => presets_helper(&policy::presets::enterprise_preset(), sev),
         (None, Some(other)) => {
-            eprintln!("hermes: unknown preset '{other}'. Available: dengbao (more presets in v0.3.0)");
+            eprintln!("hermes: unknown preset '{other}'. Available: dengbao, basic, strict, enterprise");
             None
         }
         (None, None) => {
@@ -555,10 +634,26 @@ fn resolve_policy(
                 name: String::new(),
                 min_severity: Some(s),
                 rules: std::collections::HashMap::new(),
+                exceptions: vec![],
                 preset_mode: false,
             })
         }
     }
+}
+
+fn presets_helper(preset: &policy::types::BuiltinPreset, sev: Option<String>) -> Option<policy::types::PolicyConfig> {
+    let mut rules = std::collections::HashMap::new();
+    for (rule_id, enabled) in &preset.rule_state {
+        rules.insert(rule_id.clone(), policy::types::RuleEntry { enabled: *enabled, severity: None });
+    }
+    Some(policy::types::PolicyConfig {
+        version: 1,
+        name: preset.name.clone(),
+        min_severity: sev.or_else(|| preset.min_severity.map(|s| policy::types::severity_to_str(&s).to_string())),
+        rules,
+        exceptions: vec![],
+        preset_mode: true,
+    })
 }
 
 async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>) -> i32 {
@@ -637,5 +732,40 @@ fn run_report(path: &str, format: Option<Format>, verbose: bool, output: Option<
         write_output(&pretty, output);
     }
 
+    0
+}
+
+fn run_policy_init(template: Option<&str>) -> i32 {
+    let target = ".hermes-policy.json";
+    if std::path::Path::new(target).exists() {
+        eprintln!("hermes: {target} already exists");
+        return 1;
+    }
+    let config = match template {
+        Some("dengbao") => presets_helper(&policy::presets::dengbao_preset(), None),
+        Some("basic") => presets_helper(&policy::presets::basic_preset(), None),
+        Some("strict") => presets_helper(&policy::presets::strict_preset(), None),
+        Some("enterprise") => presets_helper(&policy::presets::enterprise_preset(), None),
+        Some(other) => {
+            eprintln!("hermes: unknown template '{other}'. Available: dengbao, basic, strict, enterprise");
+            return 1;
+        }
+        None => Some(policy::types::PolicyConfig {
+            version: 1,
+            name: "Default MCP Security Policy".into(),
+            min_severity: Some("medium".into()),
+            rules: std::collections::HashMap::new(),
+            exceptions: vec![],
+            preset_mode: false,
+        }),
+    };
+    if let Some(config) = config {
+        let json = serde_json::to_string_pretty(&config).unwrap_or_default();
+        if let Err(e) = fs::write(target, json) {
+            eprintln!("hermes: cannot write {target}: {e}");
+            return 1;
+        }
+        println!("Policy file created: {target}");
+    }
     0
 }

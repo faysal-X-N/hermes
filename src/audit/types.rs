@@ -31,6 +31,90 @@ pub struct Finding {
     pub references: Vec<String>,
 }
 
+impl Finding {
+    pub fn builder() -> FindingBuilder {
+        FindingBuilder::default()
+    }
+}
+
+#[derive(Default)]
+pub struct FindingBuilder {
+    rule_id: Option<String>,
+    server_name: Option<String>,
+    file: Option<String>,
+    severity: Option<Severity>,
+    category: Option<String>,
+    title: Option<String>,
+    evidence: Option<String>,
+    recommendation: Option<String>,
+    auto_fixable: bool,
+    line: Option<usize>,
+    references: Vec<String>,
+}
+
+impl FindingBuilder {
+    pub fn rule_id(mut self, v: &str) -> Self {
+        self.rule_id = Some(v.into());
+        self
+    }
+
+    pub fn server_name(mut self, v: &str) -> Self {
+        self.server_name = Some(v.into());
+        self
+    }
+
+    pub fn file(mut self, v: &str) -> Self {
+        self.file = Some(v.into());
+        self
+    }
+
+    pub fn severity(mut self, v: Severity) -> Self {
+        self.severity = Some(v);
+        self
+    }
+
+    pub fn category(mut self, v: &str) -> Self {
+        self.category = Some(v.into());
+        self
+    }
+
+    pub fn title(mut self, v: &str) -> Self {
+        self.title = Some(v.into());
+        self
+    }
+
+    pub fn evidence(mut self, v: &str) -> Self {
+        self.evidence = Some(v.into());
+        self
+    }
+
+    pub fn recommendation(mut self, v: &str) -> Self {
+        self.recommendation = Some(v.into());
+        self
+    }
+
+    pub fn auto_fixable(mut self, v: bool) -> Self {
+        self.auto_fixable = v;
+        self
+    }
+
+    pub fn build(self) -> Finding {
+        Finding {
+            rule_id: self.rule_id.expect("rule_id is required"),
+            server_name: self.server_name.expect("server_name is required"),
+            file: self.file.expect("file is required"),
+            severity: self.severity.expect("severity is required"),
+            category: self.category.expect("category is required"),
+            title: self.title.expect("title is required"),
+            evidence: self.evidence.expect("evidence is required"),
+            recommendation: self.recommendation.expect("recommendation is required"),
+            auto_fixable: self.auto_fixable,
+            line: self.line,
+            references: self.references,
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AuditReport {
     pub target: String,
@@ -53,20 +137,7 @@ pub struct AuditSummary {
     pub grade: String,
 }
 
-pub fn compute_score(findings: &[Finding]) -> (u32, String) {
-    let critical = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Critical)
-        .count() as u32;
-    let high = findings
-        .iter()
-        .filter(|f| f.severity == Severity::High)
-        .count() as u32;
-    let medium = findings
-        .iter()
-        .filter(|f| f.severity == Severity::Medium)
-        .count() as u32;
-
+pub fn score_from_counts(critical: u32, high: u32, medium: u32) -> (u32, String) {
     let score = if 25 * critical + 10 * high + 3 * medium >= 100 {
         0
     } else {
@@ -82,6 +153,23 @@ pub fn compute_score(findings: &[Finding]) -> (u32, String) {
     };
 
     (score, grade.to_string())
+}
+
+pub fn compute_score(findings: &[Finding]) -> (u32, String) {
+    let critical = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Critical)
+        .count() as u32;
+    let high = findings
+        .iter()
+        .filter(|f| f.severity == Severity::High)
+        .count() as u32;
+    let medium = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Medium)
+        .count() as u32;
+
+    score_from_counts(critical, high, medium)
 }
 
 #[cfg(test)]

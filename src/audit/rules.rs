@@ -19,6 +19,10 @@ pub fn scan_server(
         "env-secret-leak" => check_env_secret_leak(server_name, server, file_path),
         "sensitive-file-args" => check_sensitive_file_args(server_name, server, file_path),
         "unsafe-filesystem" => check_unsafe_filesystem(server_name, server, file_path),
+        "unpinned-package" => check_unpinned_package(server_name, server, file_path),
+        "supply-chain-risk" => check_supply_chain_risk(server_name, server, file_path),
+        "no-timeout" => check_no_timeout(server_name, server, file_path),
+        "missing-description" => check_missing_description(server_name, server, file_path),
         _ => None,
     }
 }
@@ -48,54 +52,6 @@ fn build_command_text(server: &ServerConfig) -> String {
         parts.extend(args.clone());
     }
     parts.join(" ")
-}
-
-fn make_finding(
-    rule_id: &str,
-    server_name: &str,
-    file_path: &str,
-    severity: Severity,
-    category: &str,
-    title: &str,
-    evidence: &str,
-    recommendation: &str,
-    auto_fixable: bool,
-) -> Finding {
-    Finding {
-        rule_id: rule_id.into(),
-        severity,
-        category: category.into(),
-        title: title.into(),
-        file: file_path.into(),
-        server_name: server_name.into(),
-        line: None,
-        evidence: evidence.into(),
-        recommendation: recommendation.into(),
-        auto_fixable,
-        references: Vec::new(),
-    }
-}
-
-fn make_dangerous_finding(
-    server_name: &str,
-    file_path: &str,
-    pattern: &str,
-    all_text: &str,
-) -> Finding {
-    let evidence = safe_truncate(all_text, 120);
-    Finding {
-        rule_id: "dangerous-command".into(),
-        severity: Severity::High,
-        category: "permissions".into(),
-        title: format!("Dangerous command pattern detected: {pattern}"),
-        file: file_path.into(),
-        server_name: server_name.into(),
-        line: None,
-        evidence,
-        recommendation: "Remove dangerous command patterns, apply least privilege principle".into(),
-        auto_fixable: false,
-        references: Vec::new(),
-    }
 }
 
 // ── SC-01 ─────────────────────────────────────────────────────────
@@ -294,7 +250,7 @@ fn check_no_tls(server_name: &str, server: &ServerConfig, file_path: &str) -> Op
                 "Server uses insecure connection",
                 &format!("url: {url}"),
                 "Change URL to https:// to enable TLS encryption",
-                false,
+                true,
             ));
         }
     }
@@ -616,15 +572,206 @@ fn check_unsafe_filesystem(
     None
 }
 
+#[allow(clippy::too_many_arguments)]
+fn make_finding(
+    rule_id: &str,
+    server_name: &str,
+    file_path: &str,
+    severity: Severity,
+    category: &str,
+    title: &str,
+    evidence: &str,
+    recommendation: &str,
+    auto_fixable: bool,
+) -> Finding {
+    Finding::builder()
+        .rule_id(rule_id)
+        .server_name(server_name)
+        .file(file_path)
+        .severity(severity)
+        .category(category)
+        .title(title)
+        .evidence(evidence)
+        .recommendation(recommendation)
+        .auto_fixable(auto_fixable)
+        .build()
+}
+
+// ── SC-10 ─────────────────────────────────────────────────────────
+
+fn check_unpinned_package(
+    server_name: &str,
+    server: &ServerConfig,
+    file_path: &str,
+) -> Option<Finding> {
+    let cmd = server.get_command().unwrap_or("").to_string();
+    let args: Vec<String> = server
+        .args
+        .as_ref()
+        .map(|a| a.iter().map(|s| s.trim().to_string()).collect())
+        .unwrap_or_default();
+
+    let is_runtime_installer = cmd.contains("npx")
+        || cmd.contains("uvx")
+        || (cmd.contains("pnpm") && args.iter().any(|a| a == "dlx"))
+        || (cmd.contains("npm") && args.iter().any(|a| a == "exec"));
+
+    if !is_runtime_installer {
+        return None;
+    }
+
+    let mut has_package = false;
+    let mut has_version = false;
+
+    for arg in &args {
+        let arg = arg.trim();
+        if arg == "-y"
+            || arg == "--yes"
+            || arg == "exec"
+            || arg == "dlx"
+            || arg == "--"
+            || arg.starts_with("--")
+        {
+            continue;
+        }
+        if arg.is_empty() {
+            continue;
+        }
+        has_package = true;
+        has_version = arg.contains('@') || arg.contains('#');
+        break;
+    }
+
+    if has_package && !has_version {
+        Some(Finding::builder()
+            .rule_id("unpinned-package")
+            .server_name(server_name)
+            .file(file_path)
+            .severity(Severity::Medium)
+            .category("secrets")
+            .title("Package version not pinned — supply chain risk")
+            .evidence(&format!("Command: {} {}", cmd, args.join(" ")))
+            .recommendation("Pin package to a specific version (e.g. @1.2.3) to prevent supply chain attacks")
+            .build())
+    } else {
+        None
+    }
+}
+
+// ── SC-15 ─────────────────────────────────────────────────────────
+
+fn check_supply_chain_risk(
+    server_name: &str,
+    server: &ServerConfig,
+    file_path: &str,
+) -> Option<Finding> {
+    let all_args: Vec<&str> = server
+        .args
+        .as_ref()
+        .map(|a| a.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    for pair in all_args.windows(2) {
+        if pair[0] == "--registry" || pair[0] == "-r" {
+            let registry = pair[1];
+            let lower = registry.to_lowercase();
+            let is_official = lower.contains("registry.npmjs.org")
+                || lower.contains("registry.yarnpkg.com")
+                || lower.contains("pypi.org")
+                || lower.contains("crates.io");
+            if !is_official {
+                return Some(Finding::builder()
+                    .rule_id("supply-chain-risk")
+                    .server_name(server_name)
+                    .file(file_path)
+                    .severity(Severity::Medium)
+                    .category("secrets")
+                    .title("Non-official package registry detected — supply chain risk")
+                    .evidence(&format!("--registry {registry}"))
+                    .recommendation("Use official registries (registry.npmjs.org / pypi.org) or verify the source")
+                    .build());
+            }
+        }
+    }
+
+    None
+}
+
+// ── SC-09 ─────────────────────────────────────────────────────────
+
+fn check_no_timeout(server_name: &str, server: &ServerConfig, file_path: &str) -> Option<Finding> {
+    if server.has_url().is_some() && server.timeout.is_none() {
+        Some(
+            Finding::builder()
+                .rule_id("no-timeout")
+                .server_name(server_name)
+                .file(file_path)
+                .severity(Severity::Low)
+                .category("network")
+                .title("No timeout configured for remote server")
+                .evidence("No timeout field found in server configuration")
+                .recommendation("Add a timeout field (seconds) to prevent hanging connections")
+                .build(),
+        )
+    } else {
+        None
+    }
+}
+
+// ── SC-13 ─────────────────────────────────────────────────────────
+
+fn check_missing_description(
+    server_name: &str,
+    server: &ServerConfig,
+    file_path: &str,
+) -> Option<Finding> {
+    if server
+        .description
+        .as_ref()
+        .is_none_or(|d| d.trim().is_empty())
+    {
+        Some(
+            Finding::builder()
+                .rule_id("missing-description")
+                .server_name(server_name)
+                .file(file_path)
+                .severity(Severity::Info)
+                .category("best-practice")
+                .title("Server is missing a description")
+                .evidence("No description field found in server configuration")
+                .recommendation("Add a description field to document the server's purpose")
+                .build(),
+        )
+    } else {
+        None
+    }
+}
+
 // ── helpers ───────────────────────────────────────────────────────
 
 fn mask_sensitive(value: &str) -> String {
-    if value.len() <= 8 {
-        return "***".into();
+    if value.len() <= 4 {
+        return "***".to_string();
     }
-    let prefix = &value[..4];
-    let suffix = &value[value.len() - 4..];
-    format!("{prefix}...{suffix}")
+    format!("{}...{}", &value[..2], &value[value.len() - 4..])
+}
+
+fn make_dangerous_finding(
+    server_name: &str,
+    file_path: &str,
+    pattern: &str,
+    all_text: &str,
+) -> Finding {
+    Finding::builder()
+        .rule_id("dangerous-command")
+        .server_name(server_name)
+        .file(file_path)
+        .severity(Severity::High)
+        .category("permissions")
+        .title(&format!("Dangerous command pattern detected: {pattern}"))
+        .evidence(&safe_truncate(all_text, 120))
+        .recommendation("Remove dangerous command patterns, apply least privilege principle")
+        .build()
 }
 
 pub fn safe_truncate(text: &str, max_len: usize) -> String {
@@ -953,5 +1100,65 @@ mod tests {
             ..make_server()
         };
         assert!(find("unsafe-filesystem", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc10_unpinned_npx() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec!["-y".into(), "some-package".into()]),
+            ..make_server()
+        };
+        let f = find("unpinned-package", &s).unwrap();
+        assert_eq!(f.severity, Severity::Medium);
+    }
+
+    #[test]
+    fn test_sc10_pinned_version() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec!["-y".into(), "package@1.2.3".into()]),
+            ..make_server()
+        };
+        assert!(find("unpinned-package", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc10_not_runtime_installer() {
+        let s = ServerConfig {
+            command: Some("node".into()),
+            args: Some(vec!["server.js".into()]),
+            ..make_server()
+        };
+        assert!(find("unpinned-package", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc15_non_official_registry() {
+        let s = ServerConfig {
+            command: Some("npm".into()),
+            args: Some(vec![
+                "install".into(),
+                "--registry".into(),
+                "https://evil-registry.com".into(),
+            ]),
+            ..make_server()
+        };
+        let f = find("supply-chain-risk", &s).unwrap();
+        assert_eq!(f.severity, Severity::Medium);
+    }
+
+    #[test]
+    fn test_sc15_official_registry() {
+        let s = ServerConfig {
+            command: Some("npm".into()),
+            args: Some(vec![
+                "install".into(),
+                "--registry".into(),
+                "https://registry.npmjs.org".into(),
+            ]),
+            ..make_server()
+        };
+        assert!(find("supply-chain-risk", &s).is_none());
     }
 }

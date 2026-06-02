@@ -4,6 +4,9 @@ use crate::audit::types::Finding;
 
 pub fn apply_policy(findings: &mut Vec<Finding>, policy: &PolicyConfig) {
     findings.retain(|f| {
+        if policy.is_exempted(&f.rule_id, Some(&f.server_name), &f.file) {
+            return false;
+        }
         if !policy.is_rule_enabled(&f.rule_id) {
             return false;
         }
@@ -111,5 +114,50 @@ mod tests {
         apply_preset(&mut findings, &preset);
         assert_eq!(findings.len(), 1);
         assert_eq!(findings[0].rule_id, "hardcoded-api-key");
+    }
+
+    #[test]
+    fn test_exemption_by_rule() {
+        let policy: PolicyConfig = serde_json::from_str(
+            r#"{
+            "version": 1,
+            "exceptions": [{"rule": "no-tls", "reason": "test env"}]
+        }"#,
+        )
+        .unwrap();
+        let mut findings = vec![
+            make_finding("no-tls", Severity::Medium),
+            make_finding("auto-approve", Severity::High),
+        ];
+        apply_policy(&mut findings, &policy);
+        assert_eq!(findings.len(), 1);
+        assert_eq!(findings[0].rule_id, "auto-approve");
+    }
+
+    #[test]
+    fn test_exemption_expired() {
+        let policy: PolicyConfig = serde_json::from_str(
+            r#"{
+            "version": 1,
+            "exceptions": [{"rule": "no-tls", "reason": "test", "expires": "2020-01-01"}]
+        }"#,
+        )
+        .unwrap();
+        let mut findings = vec![make_finding("no-tls", Severity::Medium)];
+        apply_policy(&mut findings, &policy);
+        assert_eq!(findings.len(), 1);
+    }
+
+    #[test]
+    fn test_exemption_by_tool() {
+        let policy: PolicyConfig = serde_json::from_str(
+            r#"{
+            "version": 1,
+            "exceptions": [{"rule": "dangerous-tools", "tool": "write_file", "reason": "allowed"}]
+        }"#,
+        )
+        .unwrap();
+        assert!(policy.is_exempted("dangerous-tools", Some("write_file"), "test.json"));
+        assert!(!policy.is_exempted("dangerous-tools", Some("execute"), "test.json"));
     }
 }

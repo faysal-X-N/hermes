@@ -1,0 +1,67 @@
+name: Hermes MCP Security Scan
+description: Scan MCP server configurations for security vulnerabilities
+author: faysal-X-N
+
+inputs:
+  path:
+    description: Path to scan (file or directory)
+    required: true
+    default: "."
+  format:
+    description: Output format (json, sarif, html)
+    required: false
+    default: "sarif"
+  severity:
+    description: Minimum severity (info, low, medium, high, critical)
+    required: false
+    default: "high"
+  preset:
+    description: Built-in policy preset (dengbao, basic, strict, enterprise)
+    required: false
+  policy:
+    description: Path to JSON policy file
+    required: false
+  fail-on-findings:
+    description: Fail the job if findings are detected
+    required: false
+    default: "true"
+  upload-sarif:
+    description: Upload SARIF results to GitHub Code Scanning
+    required: false
+    default: "true"
+
+runs:
+  using: composite
+  steps:
+    - name: Install Rust (MSRV 1.88)
+      uses: dtolnay/rust-toolchain@1.88.0
+
+    - name: Install Hermes
+      shell: bash
+      run: cargo install hermes --locked || cargo install --git https://github.com/faysal-X-N/hermes --locked
+
+    - name: Run Hermes Audit
+      id: scan
+      shell: bash
+      run: |
+        HERMES_ARGS="audit ${{ inputs.path }} --format ${{ inputs.format }} --min-severity ${{ inputs.severity }}"
+        if [ -n "${{ inputs.preset }}" ]; then
+          HERMES_ARGS="$HERMES_ARGS --preset ${{ inputs.preset }}"
+        fi
+        if [ -n "${{ inputs.policy }}" ]; then
+          HERMES_ARGS="$HERMES_ARGS --policy ${{ inputs.policy }}"
+        fi
+        hermes $HERMES_ARGS > hermes-results.sarif
+        echo "sarif_file=hermes-results.sarif" >> $GITHUB_OUTPUT
+      continue-on-error: ${{ inputs.fail-on-findings == 'false' }}
+
+    - name: Upload SARIF
+      if: ${{ inputs.upload-sarif == 'true' && inputs.format == 'sarif' }}
+      uses: github/codeql-action/upload-sarif@v3
+      with:
+        sarif_file: hermes-results.sarif
+        category: hermes
+
+branding:
+  icon: shield
+  color: purple
