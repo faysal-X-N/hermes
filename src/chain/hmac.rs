@@ -176,4 +176,79 @@ mod tests {
         let chain = build_chain(key, "audit", records).unwrap();
         assert!(!verify_chain(&chain, wrong_key).unwrap());
     }
+
+    #[test]
+    fn test_secret_hash_deterministic() {
+        let key = b"secret-16bytes!!!";
+        let h1 = secret_hash(key);
+        let h2 = secret_hash(key);
+        assert_eq!(h1, h2);
+        assert!(h1.starts_with("sha256:"));
+    }
+
+    #[test]
+    fn test_secret_hash_different_keys() {
+        let h1 = secret_hash(b"key1");
+        let h2 = secret_hash(b"key2");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_hmac_hex() {
+        let key = b"test-key-16bytes!";
+        let hmac = compute_hmac(key, b"hello world");
+        assert_eq!(hmac.len(), 64);
+        assert!(hmac.chars().all(|c| c.is_ascii_hexdigit()));
+    }
+
+    #[test]
+    fn test_compute_hmac_deterministic() {
+        let key = b"test-key-16bytes!";
+        let h1 = compute_hmac(key, b"data");
+        let h2 = compute_hmac(key, b"data");
+        assert_eq!(h1, h2);
+    }
+
+    #[test]
+    fn test_compute_hmac_different_data() {
+        let key = b"test-key-16bytes!";
+        let h1 = compute_hmac(key, b"data1");
+        let h2 = compute_hmac(key, b"data2");
+        assert_ne!(h1, h2);
+    }
+
+    #[test]
+    fn test_load_key_from_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("hermes_test_key.bin");
+        std::fs::write(&path, b"my-secret-key-123").unwrap();
+        let key = load_key(Some(&path.to_string_lossy())).unwrap();
+        assert_eq!(key, b"my-secret-key-123");
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[test]
+    fn test_load_key_file_not_found() {
+        let result = load_key(Some("/nonexistent/key.bin"));
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("not found"));
+    }
+
+    #[test]
+    fn test_load_key_no_key_provided() {
+        std::env::remove_var("HERMES_AUDIT_KEY");
+        let result = load_key(None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_save_and_load_chain() {
+        let key = b"test-key-16bytes!";
+        let records = vec![make_record(1, "no-tls")];
+        let chain = build_chain(key, "audit-save-load", records).unwrap();
+        let saved_path = save_chain(&chain, "audit-save-load").unwrap();
+        assert!(std::path::Path::new(&saved_path).exists());
+        assert!(saved_path.contains("chain-audit-save-load"));
+        let _ = std::fs::remove_file(&saved_path);
+    }
 }

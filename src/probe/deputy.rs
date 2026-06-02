@@ -7,6 +7,7 @@ pub async fn probe_confused_deputy(ctx: &ProbeContext) -> Vec<ProbeFinding> {
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(ctx.timeout_secs))
         .build()
         .unwrap();
 

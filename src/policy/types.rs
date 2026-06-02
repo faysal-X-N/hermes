@@ -122,3 +122,40 @@ pub fn severity_to_str(s: &Severity) -> &'static str {
         Severity::Critical => "critical",
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audit::types::Severity;
+
+    #[test]
+    fn test_parse_severity_all_levels() {
+        assert_eq!(parse_severity("info"), Some(Severity::Info));
+        assert_eq!(parse_severity("Low"), Some(Severity::Low));
+        assert_eq!(parse_severity("MEDIUM"), Some(Severity::Medium));
+        assert_eq!(parse_severity("High"), Some(Severity::High));
+        assert_eq!(parse_severity("CRITICAL"), Some(Severity::Critical));
+    }
+
+    #[test]
+    fn test_parse_severity_invalid() {
+        assert_eq!(parse_severity("invalid"), None);
+        assert_eq!(parse_severity(""), None);
+        assert_eq!(parse_severity("urgent"), None);
+    }
+
+    #[test]
+    fn test_severity_to_str_roundtrip() {
+        let sevs = [
+            Severity::Info,
+            Severity::Low,
+            Severity::Medium,
+            Severity::High,
+            Severity::Critical,
+        ];
+        for sev in &sevs {
+            let s = severity_to_str(sev);
+            assert_eq!(parse_severity(s), Some(*sev));
+        }
+    }
+}

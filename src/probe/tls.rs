@@ -228,3 +228,48 @@ fn extract_port(url: &str) -> Option<u16> {
     None
 }
 
+#[cfg(test)]
+mod url_tests {
+    use super::*;
+
+    #[test]
+    fn test_extract_host_https() {
+        assert_eq!(extract_host("https://example.com"), "example.com");
+    }
+
+    #[test]
+    fn test_extract_host_with_port() {
+        assert_eq!(extract_host("https://example.com:8443"), "example.com");
+    }
+
+    #[test]
+    fn test_extract_host_ipv4() {
+        assert_eq!(extract_host("http://192.168.1.1:8080/path"), "192.168.1.1");
+    }
+
+    #[test]
+    fn test_extract_host_ipv6() {
+        assert_eq!(extract_host("https://[::1]:3000"), "::1");
+    }
+
+    #[test]
+    fn test_extract_host_no_scheme() {
+        assert_eq!(extract_host("localhost:3000"), "localhost");
+    }
+
+    #[test]
+    fn test_extract_port_default_https() {
+        assert_eq!(extract_port("https://example.com"), None);
+    }
+
+    #[test]
+    fn test_extract_port_custom() {
+        assert_eq!(extract_port("https://example.com:8443"), Some(8443));
+    }
+
+    #[test]
+    fn test_extract_port_ipv6_with_port() {
+        assert_eq!(extract_port("https://[::1]:3000"), Some(3000));
+    }
+}
+

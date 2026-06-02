@@ -200,3 +200,25 @@ fn truncate(s: &str, max_len: usize) -> String {
         format!("{}…", &s[..max_len - 1])
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_short() {
+        assert_eq!(truncate("abc", 10), "abc");
+    }
+
+    #[test]
+    fn test_truncate_exact() {
+        assert_eq!(truncate("hello", 5), "hello");
+    }
+
+    #[test]
+    fn test_truncate_long() {
+        let result = truncate("hello world", 6);
+        assert!(result.starts_with("hello"));
+        assert!(result.ends_with('…'));
+    }
+}

@@ -30,3 +30,17 @@ impl AuditChain {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_audit_chain_new() {
+        let chain = AuditChain::new("sha256:abc123".into());
+        assert_eq!(chain.chain_version, 1);
+        assert_eq!(chain.algorithm, "HMAC-SHA256");
+        assert_eq!(chain.secret_hash, "sha256:abc123");
+        assert!(chain.records.is_empty());
+    }
+}

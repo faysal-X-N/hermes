@@ -60,6 +60,7 @@ pub fn strict_preset() -> BuiltinPreset {
         "supply-chain-risk",
         "no-timeout",
         "missing-description",
+        "world-readable-config",
     ];
     let mut rules = HashMap::new();
     for id in &all {
@@ -90,6 +91,7 @@ pub fn enterprise_preset() -> BuiltinPreset {
         "supply-chain-risk",
         "no-timeout",
         "missing-description",
+        "world-readable-config",
     ] {
         rules.insert(id.to_string(), true);
     }
@@ -117,5 +119,22 @@ mod tests {
         let p = dengbao_preset();
         assert_eq!(p.rule_state.len(), 8);
         assert!(p.rule_state.contains_key("no-authentication"));
+    }
+
+    #[test]
+    fn test_strict_preset_count() {
+        let p = strict_preset();
+        assert_eq!(p.rule_state.len(), 16);
+        assert_eq!(p.min_severity, Some(Severity::Low));
+        assert!(p.rule_state.contains_key("world-readable-config"));
+    }
+
+    #[test]
+    fn test_enterprise_preset_count() {
+        let p = enterprise_preset();
+        assert_eq!(p.rule_state.len(), 16);
+        assert_eq!(p.min_severity, Some(Severity::Medium));
+        assert!(p.rule_state.contains_key("supply-chain-risk"));
+        assert!(p.rule_state.contains_key("no-timeout"));
     }
 }

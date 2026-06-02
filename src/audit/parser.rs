@@ -100,23 +100,6 @@ impl ServerConfig {
             .or(self.exec.as_deref())
     }
 
-    #[allow(dead_code)]
-    pub fn get_all_args(&self) -> Vec<&str> {
-        let mut all = Vec::new();
-        if let Some(ref args) = self.args {
-            for a in args {
-                all.push(a.as_str());
-            }
-        }
-        // If command field is set, first arg might be the command itself
-        if let Some(ref cmd) = self.command {
-            if all.is_empty() {
-                all.push(cmd.as_str());
-            }
-        }
-        all
-    }
-
     pub fn get_credential(&self) -> Option<&str> {
         self.api_key
             .as_deref()

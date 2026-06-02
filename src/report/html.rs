@@ -1,5 +1,13 @@
 use crate::audit::types::{Finding, Severity};
 
+fn html_escape(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+        .replace('"', "&quot;")
+        .replace('\'', "&#39;")
+}
+
 pub fn build_html_audit(path: &str, findings: &[Finding], score: u32, grade: &str) -> String {
     let critical = findings
         .iter()
@@ -35,22 +43,24 @@ pub fn build_html_audit(path: &str, findings: &[Finding], score: u32, grade: &st
             };
             format!(
                 "<tr class=\"{css_class}\"><td>{sev}</td><td>{rule}</td><td>{title}</td><td>{file}</td><td>{evidence}</td><td>{rec}</td></tr>",
-                rule = f.rule_id,
-                title = f.title,
-                file = f.file,
-                evidence = f.evidence,
-                rec = f.recommendation,
+                rule = html_escape(&f.rule_id),
+                title = html_escape(&f.title),
+                file = html_escape(&f.file),
+                evidence = html_escape(&f.evidence),
+                rec = html_escape(&f.recommendation),
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
+
+    let path_escaped = html_escape(path);
 
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Hermes Audit Report — {path}</title>
+<title>Hermes Audit Report — {path_escaped}</title>
 <style>
 body{{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:40px;background:#111;color:#eee}}
 h1{{color:#fff;border-bottom:2px solid #333;padding-bottom:8px}}
@@ -66,7 +76,7 @@ th{{background:#222}} tr:hover{{background:#1a1a1a}}
 </head>
 <body>
 <h1>Hermes Audit Report</h1>
-<p>Target: <code>{path}</code></p>
+<p>Target: <code>{path_escaped}</code></p>
 <div class="summary">
 <div class="stat"><div class="num score">{score}</div><div>Score</div></div>
 <div class="stat"><div class="num grade">{grade}</div><div>Grade</div></div>
@@ -89,21 +99,23 @@ pub fn build_html_probe(target: &str, findings: &[crate::probe::types::ProbeFind
             let sev = format!("{:?}", f.severity).to_lowercase();
             format!(
                 "<tr><td>{sev}</td><td>{rule}</td><td>{title}</td><td>{evidence}</td><td>{rec}</td></tr>",
-                rule = f.rule_id,
-                title = f.title,
-                evidence = f.evidence,
-                rec = f.recommendation,
+                rule = html_escape(&f.rule_id),
+                title = html_escape(&f.title),
+                evidence = html_escape(&f.evidence),
+                rec = html_escape(&f.recommendation),
             )
         })
         .collect::<Vec<_>>()
         .join("\n");
+
+    let target_escaped = html_escape(target);
 
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Hermes Probe Report — {target}</title>
+<title>Hermes Probe Report — {target_escaped}</title>
 <style>
 body{{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:40px;background:#111;color:#eee}}
 h1{{color:#fff;border-bottom:2px solid #333;padding-bottom:8px}}
@@ -114,7 +126,7 @@ th{{background:#222}} tr:hover{{background:#1a1a1a}}
 </head>
 <body>
 <h1>Hermes Probe Report</h1>
-<p>Target: <code>{target}</code></p>
+<p>Target: <code>{target_escaped}</code></p>
 <p>Findings: {count}</p>
 <table><thead><tr><th>Severity</th><th>Rule</th><th>Title</th><th>Evidence</th><th>Recommendation</th></tr></thead>
 <tbody>{finding_rows}</tbody></table>
@@ -209,12 +221,13 @@ pub fn build_html_management(
         _ => "#ff4444",
     };
 
+    let path_escaped_m = html_escape(path);
     format!(
         r#"<!DOCTYPE html>
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<title>Hermes Management Report — {path}</title>
+<title>Hermes Management Report — {path_escaped_m}</title>
 <style>
 body{{font-family:-apple-system,BlinkMacSystemFont,sans-serif;margin:40px;background:#fff;color:#222}}
 h1{{border-bottom:3px solid #4a90d9;padding-bottom:12px;color:#333}}
@@ -242,7 +255,7 @@ footer{{margin-top:40px;padding-top:16px;border-top:1px solid #ddd;color:#999;fo
 </head>
 <body>
 <h1>MCP Security Management Report</h1>
-<div class="meta">Target: <code>{path}</code> &bull; Files: {files_scanned} &bull; Duration: {duration_ms}ms</div>
+<div class="meta">Target: <code>{path_escaped_m}</code> &bull; Files: {files_scanned} &bull; Duration: {duration_ms}ms</div>
 
 <div class="score-card">
 <div class="score-num">{score}</div>
@@ -327,7 +340,9 @@ fn build_top_findings(findings: &[Finding]) -> String {
             let sev = format!("{:?}", f.severity).to_lowercase();
             format!(
                 "<tr><td>{sev}</td><td>{}</td><td>{}</td><td>{}</td></tr>",
-                f.rule_id, f.title, f.recommendation
+                html_escape(&f.rule_id),
+                html_escape(&f.title),
+                html_escape(&f.recommendation),
             )
         })
         .collect::<Vec<_>>()

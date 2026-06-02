@@ -80,7 +80,8 @@ fn test_audit_no_issues_on_secure_config() {
     hermes()
         .args(["audit", "tests/fixtures/configs/secure-mcp.json"])
         .assert()
-        .success();
+        .success()
+        .stdout(predicate::str::contains("No issues found"));
 }
 
 #[test]
@@ -89,4 +90,73 @@ fn test_audit_invalid_path_fails() {
         .args(["audit", "/nonexistent/path"])
         .assert()
         .code(1);
+}
+
+#[test]
+fn test_init_key_works() {
+    let key_path = ".test-audit-key";
+    let _ = fs::remove_file(key_path);
+
+    hermes()
+        .args(["audit", "--init-key", "--audit-key", key_path])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("key created"));
+
+    assert!(std::path::Path::new(key_path).exists());
+    let key = fs::read(key_path).unwrap();
+    assert_eq!(key.len(), 32);
+    let _ = fs::remove_file(key_path);
+}
+
+#[test]
+fn test_verify_works() {
+    let key_file = ".test-audit-key";
+    let _ = fs::remove_file(key_file);
+    let _ = fs::remove_dir_all(".hermes");
+
+    hermes()
+        .args(["audit", "--init-key", "--audit-key", key_file])
+        .assert()
+        .success();
+
+    hermes()
+        .args([
+            "audit",
+            "tests/fixtures/configs/secure-mcp.json",
+            "--audit-key",
+            key_file,
+        ])
+        .assert()
+        .success();
+
+    let entries = fs::read_dir(".hermes").unwrap();
+    let chain_file = entries
+        .filter_map(|e| e.ok())
+        .find(|e| e.file_name().to_string_lossy().starts_with("chain-"))
+        .expect("No chain file found");
+
+    hermes()
+        .args([
+            "verify",
+            &chain_file.path().to_string_lossy(),
+            "--audit-key",
+            key_file,
+        ])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("verified"));
+
+    let _ = fs::remove_file(key_file);
+    let _ = fs::remove_dir_all(".hermes");
+}
+
+#[test]
+fn test_fuzz_help_output() {
+    hermes()
+        .args(["fuzz", "--help"])
+        .assert()
+        .success()
+        .stdout(predicate::str::contains("--policy"))
+        .stdout(predicate::str::contains("--preset"));
 }

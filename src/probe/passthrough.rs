@@ -7,6 +7,7 @@ pub async fn probe_token_passthrough(ctx: &ProbeContext) -> Vec<ProbeFinding> {
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(ctx.timeout_secs))
         .build()
         .unwrap();
 
@@ -49,6 +50,7 @@ pub async fn probe_scope_minimization(ctx: &ProbeContext) -> Vec<ProbeFinding> {
 
     let client = reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
+        .timeout(std::time::Duration::from_secs(ctx.timeout_secs))
         .build()
         .unwrap();
 

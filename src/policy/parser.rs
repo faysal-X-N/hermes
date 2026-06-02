@@ -74,4 +74,32 @@ mod tests {
         let p: PolicyConfig = serde_json::from_str(json).unwrap();
         assert!(p.is_rule_enabled("some-unknown-rule"));
     }
+
+    #[test]
+    fn test_load_policy_rejects_version_2() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("hermes_test_v2.json");
+        let content = r#"{"version": 2, "rules": {}}"#;
+        std::fs::write(&path, content).unwrap();
+        let result = load_policy(&path.to_string_lossy());
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("version"));
+    }
+
+    #[test]
+    fn test_load_policy_nonexistent_file() {
+        let result = load_policy("/nonexistent/path/policy.json");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_load_policy_invalid_json_file() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("hermes_test_bad.json");
+        std::fs::write(&path, "not valid json").unwrap();
+        let result = load_policy(&path.to_string_lossy());
+        let _ = std::fs::remove_file(&path);
+        assert!(result.is_err());
+    }
 }

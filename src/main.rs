@@ -4,7 +4,7 @@ use hermes::fuzz;
 use hermes::policy;
 use hermes::probe;
 use hermes::report;
-use audit::types::{compute_score, Severity};
+use audit::types::{compute_score, score_from_counts, Severity};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
 use std::process;
@@ -135,6 +135,15 @@ enum Commands {
 
         #[arg(long, default_value = "30", help = "Fuzz timeout in seconds")]
         timeout: u64,
+
+        #[arg(long = "policy", help = "Path to JSON policy file")]
+        policy_file: Option<String>,
+
+        #[arg(long = "preset", help = "Built-in policy preset")]
+        preset: Option<String>,
+
+        #[arg(long = "min-severity", help = "Minimum severity to show (info/low/medium/high/critical)")]
+        min_severity: Option<String>,
     },
 
     #[command(about = "Render a JSON scan result file as formatted report")]
@@ -191,9 +200,10 @@ fn main() {
         Commands::Verify { audit_file, audit_key } => {
             run_verify(&audit_file, audit_key.as_deref(), cli.verbose)
         }
-        Commands::Fuzz { url, timeout } => {
+        Commands::Fuzz { url, timeout, policy_file, preset, min_severity } => {
+            let policy = resolve_policy(policy_file.as_deref(), preset.as_deref(), min_severity.as_deref());
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(run_fuzz(&url, timeout, cli.format, cli.verbose, cli.output.as_deref()))
+            rt.block_on(run_fuzz(&url, timeout, cli.format, cli.verbose, cli.output.as_deref(), &policy))
         }
         Commands::Report { path } => {
             run_report(&path, cli.format, cli.verbose, cli.output.as_deref())
@@ -342,7 +352,7 @@ fn run_audit(args: &AuditArgs) -> i32 {
     if all_findings.is_empty() { 0 } else { 2 }
 }
 
-async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>, audit_key: Option<&str>, _policy: &Option<policy::types::PolicyConfig>) -> i32 {
+async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>, audit_key: Option<&str>, policy: &Option<policy::types::PolicyConfig>) -> i32 {
     let start = Instant::now();
     let ctx = probe::types::ProbeContext::new(url, timeout);
 
@@ -386,6 +396,10 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     all_findings.extend(scope_result);
     let tools = tools_result.tools;
 
+    if let Some(ref p) = policy {
+        apply_policy_to_probe(&mut all_findings, p);
+    }
+
     let duration_ms = start.elapsed().as_millis() as u64;
 
     let total = all_findings.len();
@@ -395,7 +409,9 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     let low = all_findings.iter().filter(|f| f.severity == Severity::Low).count();
     let info = all_findings.iter().filter(|f| f.severity == Severity::Info).count();
 
-    let (score, grade) = compute_probe_score(&all_findings);
+    let (score, grade) = score_from_counts(
+        critical as u32, high as u32, medium as u32,
+    );
 
     if verbose {
         tracing::debug!("probe complete: {} findings, score={}, grade={}, {}ms",
@@ -467,26 +483,30 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     if all_findings.iter().any(|f| f.severity >= Severity::High) { 2 } else { 0 }
 }
 
-fn compute_probe_score(findings: &[probe::types::ProbeFinding]) -> (u32, String) {
-    let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count() as u32;
-    let high = findings.iter().filter(|f| f.severity == Severity::High).count() as u32;
-    let medium = findings.iter().filter(|f| f.severity == Severity::Medium).count() as u32;
+fn apply_policy_to_probe(findings: &mut Vec<probe::types::ProbeFinding>, policy: &policy::types::PolicyConfig) {
+    findings.retain(|f| {
+        if policy.is_exempted(&f.rule_id, Some(&f.target), &f.target) {
+            return false;
+        }
+        if !policy.is_rule_enabled(&f.rule_id) {
+            return false;
+        }
+        if let Some(min_sev) = policy.min_severity_value() {
+            let effective = policy
+                .rule_severity_override(&f.rule_id)
+                .unwrap_or(f.severity);
+            if effective < min_sev {
+                return false;
+            }
+        }
+        true
+    });
 
-    let score = if 25 * critical + 10 * high + 3 * medium >= 100 {
-        0
-    } else {
-        100 - 25 * critical - 10 * high - 3 * medium
-    };
-
-    let grade = match score {
-        90..=100 => "A",
-        75..=89 => "B",
-        60..=74 => "C",
-        40..=59 => "D",
-        _ => "F",
-    };
-
-    (score, grade.to_string())
+    for f in findings.iter_mut() {
+        if let Some(override_sev) = policy.rule_severity_override(&f.rule_id) {
+            f.severity = override_sev;
+        }
+    }
 }
 
 fn save_audit_chain(key_path: &str, command: &str, findings: &[audit::types::Finding]) {
@@ -647,7 +667,7 @@ fn presets_helper(preset: &policy::types::BuiltinPreset, sev: Option<String>) ->
     })
 }
 
-async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>) -> i32 {
+async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>, policy: &Option<policy::types::PolicyConfig>) -> i32 {
     eprintln!("Fuzzing {url} ...");
 
     if verbose {
@@ -657,6 +677,28 @@ async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool
     let ctx = fuzz::types::FuzzContext::new(url, timeout);
     let test_ids: &[&str] = &["FZ-01", "FZ-02", "FZ-03", "FZ-04", "FZ-05", "FZ-06", "FZ-07"];
     let results = fuzz::engine::run_fuzz(&ctx, test_ids).await;
+
+    let results = if let Some(ref p) = policy {
+        results.into_iter().filter(|r| {
+            if !p.is_rule_enabled(&r.test_id) {
+                return false;
+            }
+            if let Some(min_sev) = p.min_severity_value() {
+                let effective = p.rule_severity_override(&r.test_id).unwrap_or(r.severity);
+                if effective < min_sev {
+                    return false;
+                }
+            }
+            true
+        }).map(|mut r| {
+            if let Some(override_sev) = p.rule_severity_override(&r.test_id) {
+                r.severity = override_sev;
+            }
+            r
+        }).collect()
+    } else {
+        results
+    };
 
     let crashed = results.iter().filter(|r| r.severity >= crate::audit::types::Severity::High).count();
 

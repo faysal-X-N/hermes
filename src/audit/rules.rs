@@ -23,6 +23,7 @@ pub fn scan_server(
         "supply-chain-risk" => check_supply_chain_risk(server_name, server, file_path),
         "no-timeout" => check_no_timeout(server_name, server, file_path),
         "missing-description" => check_missing_description(server_name, server, file_path),
+        "world-readable-config" => check_file_permissions(server_name, server, file_path),
         _ => None,
     }
 }
@@ -747,6 +748,55 @@ fn check_missing_description(
     }
 }
 
+fn check_file_permissions(
+    server_name: &str,
+    _server: &ServerConfig,
+    file_path: &str,
+) -> Option<Finding> {
+    if file_path.is_empty() || file_path == "-" {
+        return None;
+    }
+
+    let mode = file_mode(file_path)?;
+
+    if !is_world_or_group_readable(mode) {
+        return None;
+    }
+
+    let readable_by = if mode & 0o004 != 0 { "world" } else { "group" };
+
+    let evidence = format!(
+        "MCP configuration file is {readable_by}-readable (permissions: {mode:o}) — secrets may be exposed."
+    );
+    Some(
+        Finding::builder()
+            .rule_id("world-readable-config")
+            .server_name(server_name)
+            .file(file_path)
+            .severity(Severity::Medium)
+            .category("secrets")
+            .title("Config file has overly permissive permissions")
+            .evidence(&evidence)
+            .recommendation("Restrict to owner-only: chmod 0600 <file>")
+            .build(),
+    )
+}
+
+#[cfg(unix)]
+fn file_mode(path: &str) -> Option<u32> {
+    use std::os::unix::fs::PermissionsExt;
+    std::fs::metadata(path).ok().map(|m| m.permissions().mode())
+}
+
+#[cfg(not(unix))]
+fn file_mode(_path: &str) -> Option<u32> {
+    None
+}
+
+fn is_world_or_group_readable(mode: u32) -> bool {
+    (mode & 0o004) != 0 || (mode & 0o040) != 0
+}
+
 // ── helpers ───────────────────────────────────────────────────────
 
 fn mask_sensitive(value: &str) -> String {
@@ -783,6 +833,37 @@ pub fn safe_truncate(text: &str, max_len: usize) -> String {
         end -= 1;
     }
     format!("{}...", &text[..end])
+}
+
+#[cfg(test)]
+mod truncate_tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_empty_string() {
+        assert_eq!(safe_truncate("", 10), "");
+    }
+
+    #[test]
+    fn test_truncate_short_string() {
+        assert_eq!(safe_truncate("abc", 10), "abc");
+    }
+
+    #[test]
+    fn test_truncate_at_boundary() {
+        assert_eq!(safe_truncate("abcdefghij", 5), "abcde...");
+    }
+
+    #[test]
+    fn test_truncate_exact_length() {
+        assert_eq!(safe_truncate("abcde", 5), "abcde");
+    }
+
+    #[test]
+    fn test_truncate_multi_byte_char() {
+        let input = "Hello世界";
+        assert!(safe_truncate(input, 6).starts_with("Hello"));
+    }
 }
 
 #[cfg(test)]
@@ -1146,6 +1227,69 @@ mod tests {
         };
         let f = find("supply-chain-risk", &s).unwrap();
         assert_eq!(f.severity, Severity::Medium);
+        assert!(f.evidence.contains("evil-registry"));
+    }
+
+    #[test]
+    fn test_sc16_no_timeout_for_remote_server() {
+        let s = ServerConfig {
+            url: Some("https://example.com/mcp".into()),
+            ..make_server()
+        };
+        let f = find("no-timeout", &s).unwrap();
+        assert_eq!(f.severity, Severity::Low);
+        assert_eq!(f.category, "network");
+    }
+
+    #[test]
+    fn test_sc16_has_timeout_is_safe() {
+        let s = ServerConfig {
+            url: Some("https://example.com/mcp".into()),
+            timeout: Some(30),
+            ..make_server()
+        };
+        assert!(find("no-timeout", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc16_no_timeout_skipped_if_no_url() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            ..make_server()
+        };
+        assert!(find("no-timeout", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc13_missing_description() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec!["-y".into(), "some-server".into()]),
+            ..make_server()
+        };
+        let f = find("missing-description", &s).unwrap();
+        assert_eq!(f.severity, Severity::Info);
+        assert_eq!(f.category, "best-practice");
+    }
+
+    #[test]
+    fn test_sc13_empty_description() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            description: Some("".into()),
+            ..make_server()
+        };
+        assert!(find("missing-description", &s).is_some());
+    }
+
+    #[test]
+    fn test_sc13_has_description_is_safe() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            description: Some("A well-documented server".into()),
+            ..make_server()
+        };
+        assert!(find("missing-description", &s).is_none());
     }
 
     #[test]
@@ -1160,5 +1304,101 @@ mod tests {
             ..make_server()
         };
         assert!(find("supply-chain-risk", &s).is_none());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_world_readable_config_detected() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir();
+        let path = dir.join("hermes_test_0644.json");
+        std::fs::write(&path, r#"{"mcpServers":{"s":{"command":"npx"}}}"#).unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        let contents = std::fs::read_to_string(&path).unwrap();
+        let config = crate::audit::parser::parse_config_from_bytes(contents.as_bytes()).unwrap();
+        let server = &config.servers["s"];
+        let f = scan_server(
+            "world-readable-config",
+            "s",
+            server,
+            &path.to_string_lossy(),
+        )
+        .unwrap();
+        assert_eq!(f.rule_id, "world-readable-config");
+        assert_eq!(f.severity, Severity::Medium);
+        assert!(f.evidence.contains("644"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_world_readable_config_detected() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir();
+        let path = dir.join("hermes_test_0644.json");
+        std::fs::write(&path, "{}").unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o644);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        let server = make_server();
+        let f = scan_server(
+            "world-readable-config",
+            "test-server",
+            &server,
+            &path.to_string_lossy(),
+        )
+        .unwrap();
+        assert_eq!(f.rule_id, "world-readable-config");
+        assert_eq!(f.severity, Severity::Medium);
+        assert!(f.evidence.contains("644"));
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_owner_only_config_is_safe() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = std::env::temp_dir();
+        let path = dir.join("hermes_test_0600.json");
+        std::fs::write(&path, "{}").unwrap();
+        let mut perms = std::fs::metadata(&path).unwrap().permissions();
+        perms.set_mode(0o600);
+        std::fs::set_permissions(&path, perms).unwrap();
+
+        let server = make_server();
+        assert!(scan_server(
+            "world-readable-config",
+            "test-server",
+            &server,
+            &path.to_string_lossy()
+        )
+        .is_none());
+
+        let _ = std::fs::remove_file(&path);
+    }
+
+    #[cfg(not(unix))]
+    #[test]
+    fn test_file_perms_rule_skipped_on_windows() {
+        let dir = std::env::temp_dir();
+        let path = dir.join("hermes_test_win.json");
+        std::fs::write(&path, "{}").unwrap();
+
+        let server = make_server();
+        assert!(scan_server(
+            "world-readable-config",
+            "test-server",
+            &server,
+            &path.to_string_lossy()
+        )
+        .is_none());
+
+        let _ = std::fs::remove_file(&path);
     }
 }

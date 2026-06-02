@@ -6,7 +6,7 @@ MCP Runtime Security Scanner &amp; Compliance Auditor
 [![Crates.io](https://img.shields.io/crates/v/hermes.svg)](https://crates.io/crates/hermes)
 [![License](https://img.shields.io/crates/l/hermes.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.88.0+-blue?logo=rust)](https://blog.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-108%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-164%20passed-brightgreen)]()
 [![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
 
 > **Hermes** is a Rust-powered CLI tool for scanning, probing, and fuzzing MCP (Model Context Protocol) server configurations. It combines static config audit, runtime TLS/auth/SSRF/session probing, fuzz testing, tamper-proof audit chains, and China compliance (等保 2.0) — all in a single binary.
@@ -163,15 +163,15 @@ hermes audit . --preset dengbao
 | Preset | Threshold | Rules | Use Case |
 |--------|:--:|:--:|------|
 | `basic` | Critical | 3 | CI gate |
-| `strict` | Low+ | 15 | Full audit |
-| `enterprise` | Medium+ | 15 | Production compliance |
+| `strict` | Low+ | 16 | Full audit |
+| `enterprise` | Medium+ | 16 | Production compliance |
 | `dengbao` | High+ | 8 | China 等保 Level 2 |
 
 ---
 
 ## Scan Rules
 
-### Static Audit (15 rules)
+### Static Audit (16 rules)
 
 | ID | Rule | Severity | Description |
 |----|------|:--:|------|
@@ -190,6 +190,7 @@ hermes audit . --preset dengbao
 | SC-13 | `missing-description` | Info | No description |
 | SC-14 | `unsafe-filesystem` | High | Filesystem bound to `/` |
 | SC-15 | `supply-chain-risk` | Medium | Non-official registry |
+| SC-16 | `world-readable-config` | Medium | Config file has overly permissive file permissions |
 
 ### Runtime Probe (17 rules)
 

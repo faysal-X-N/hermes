@@ -157,14 +157,16 @@ fn check_incremental(ids: &[String]) -> bool {
     if ids.len() < 2 {
         return false;
     }
-    let nums: Vec<Option<u64>> = ids
+    let nums: Vec<Option<u128>> = ids
         .iter()
         .map(|id| {
             let id = id.trim();
-            if id.len() > 20 {
-                None
+            if id.len() <= 20 {
+                id.parse::<u64>().ok().map(|v| v as u128)
+            } else if id.len() <= 39 && id.chars().all(|c| c.is_ascii_hexdigit()) {
+                u128::from_str_radix(id, 16).ok()
             } else {
-                id.parse::<u64>().ok()
+                None
             }
         })
         .collect();
@@ -212,5 +214,27 @@ mod tests {
     #[test]
     fn test_check_incremental_false() {
         assert!(!check_incremental(&["550e8400-e29b-41d4-a716-446655440000".into(), "6ba7b810-9dad-11d1-80b4-00c04fd430c8".into()]));
+    }
+
+    #[test]
+    fn test_check_incremental_long_hex_not_incremental() {
+        let ids: Vec<String> = vec![
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6".into(),
+            "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7".into(),
+            "a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6".into(),
+            "b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6e7".into(),
+        ];
+        assert!(!check_incremental(&ids));
+    }
+
+    #[test]
+    fn test_check_incremental_long_hex_sequential() {
+        let ids: Vec<String> = vec![
+            "00000000000000000000000000000001".into(),
+            "00000000000000000000000000000002".into(),
+            "00000000000000000000000000000003".into(),
+            "00000000000000000000000000000004".into(),
+        ];
+        assert!(check_incremental(&ids));
     }
 }

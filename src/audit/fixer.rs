@@ -12,6 +12,19 @@ pub fn apply_fixes_from_findings(findings: &[Finding], dry_run: bool) {
 
     let mut written = HashSet::new();
 
+    if !dry_run {
+        for f in &auto_fixable {
+            let bak_path = format!("{}.hermes.bak", f.file);
+            if std::path::Path::new(&bak_path).exists() {
+                continue;
+            }
+            if let Err(e) = fs::copy(&f.file, &bak_path) {
+                eprintln!("hermes: cannot backup {}: {e}", f.file);
+                continue;
+            }
+        }
+    }
+
     for f in &auto_fixable {
         let json_str = match fs::read_to_string(&f.file) {
             Ok(s) => s,
