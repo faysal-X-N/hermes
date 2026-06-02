@@ -100,6 +100,8 @@ impl ServerConfig {
             .or_else(|| self.exec.as_deref())
     }
 
+    #[allow(dead_code)]
+    #[allow(dead_code)]
     pub fn get_all_args(&self) -> Vec<&str> {
         let mut all = Vec::new();
         if let Some(ref args) = self.args {
