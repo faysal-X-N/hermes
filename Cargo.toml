@@ -16,6 +16,10 @@ categories = ["command-line-utilities", "development-tools::testing"]
 name = "hermes"
 path = "src/main.rs"
 
+[lib]
+name = "hermes"
+path = "src/lib.rs"
+
 [dependencies]
 clap = { version = "4", features = ["derive"] }
 tokio = { version = "1.38", features = ["full"] }
@@ -46,3 +50,8 @@ opt-level = 3
 lto = "fat"
 codegen-units = 1
 strip = "symbols"
+
+[dev-dependencies]
+assert_cmd = "2.2.2"
+predicates = "3.1.4"
+wiremock = "0.6.5"

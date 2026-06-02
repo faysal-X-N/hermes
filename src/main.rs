@@ -1,10 +1,9 @@
-mod audit;
-mod chain;
-mod fuzz;
-mod policy;
-mod probe;
-mod report;
-
+use hermes::audit;
+use hermes::chain;
+use hermes::fuzz;
+use hermes::policy;
+use hermes::probe;
+use hermes::report;
 use audit::types::{compute_score, Severity};
 use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
