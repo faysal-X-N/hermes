@@ -1,23 +1,23 @@
+#![allow(dead_code)]
 use crate::audit::types::Severity;
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ProbeFinding {
-    pub rule_id: String,
+#[derive(Debug, Clone, Serialize)]
+pub struct FuzzResult {
+    pub test_id: String,
+    pub tool_name: String,
+    pub payload: String,
     pub severity: Severity,
-    pub category: String,
-    pub title: String,
-    pub target: String,
     pub evidence: String,
     pub recommendation: String,
 }
 
-pub struct ProbeContext {
+pub struct FuzzContext {
     pub target_url: String,
     pub timeout_secs: u64,
 }
 
-impl ProbeContext {
+impl FuzzContext {
     pub fn new(url: &str, timeout: u64) -> Self {
         let url = if !url.starts_with("http") {
             format!("https://{url}")

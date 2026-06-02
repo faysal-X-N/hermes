@@ -16,6 +16,9 @@ pub fn scan_server(
         "no-authentication" => check_no_authentication(server_name, server, file_path),
         "bind-public-interface" => check_bind_public_interface(server_name, server, file_path),
         "auto-approve" => check_auto_approve(server_name, server, file_path),
+        "env-secret-leak" => check_env_secret_leak(server_name, server, file_path),
+        "sensitive-file-args" => check_sensitive_file_args(server_name, server, file_path),
+        "unsafe-filesystem" => check_unsafe_filesystem(server_name, server, file_path),
         _ => None,
     }
 }
@@ -309,9 +312,9 @@ fn check_no_authentication(
     server: &ServerConfig,
     file_path: &str,
 ) -> Option<Finding> {
-    let has_credential = server.get_credential().is_some_and(|c| {
-        !c.is_empty() && c != "${}" && !c.trim().is_empty()
-    });
+    let has_credential = server
+        .get_credential()
+        .is_some_and(|c| !c.is_empty() && c != "${}" && !c.trim().is_empty());
     let has_auth_header = server.auth.is_some() || server.authorization.is_some();
     let has_env_token = server
         .env
@@ -404,6 +407,212 @@ fn check_auto_approve(
             false,
         ));
     }
+    None
+}
+
+// ── SC-11 ─────────────────────────────────────────────────────────
+
+fn check_env_secret_leak(
+    server_name: &str,
+    server: &ServerConfig,
+    file_path: &str,
+) -> Option<Finding> {
+    if let Some(ref env) = server.env {
+        for (var, val) in env {
+            if ServerConfig::is_env_var_ref(val) || val.is_empty() {
+                continue;
+            }
+            if looks_like_secret_value(val) {
+                return Some(make_finding(
+                    "env-secret-leak",
+                    server_name,
+                    file_path,
+                    Severity::High,
+                    "secrets",
+                    &format!("Environment variable {var} value appears to be a secret"),
+                    &format!("{}={}", var, mask_sensitive(val)),
+                    "Replace hardcoded value with ${VAR} environment variable reference",
+                    true,
+                ));
+            }
+        }
+    }
+    None
+}
+
+fn looks_like_secret_value(val: &str) -> bool {
+    let val = val.trim();
+    if val.len() < 8 {
+        return false;
+    }
+    let known_prefixes = [
+        "sk-",
+        "sk_",
+        "ghp_",
+        "gho_",
+        "ghu_",
+        "ghs_",
+        "ghr_",
+        "xoxb-",
+        "xoxp-",
+        "xapp-",
+        "eyJ",
+        "AKIA",
+        "ABIA",
+        "ACCA",
+        "-----BEGIN",
+        "-----END",
+    ];
+    for prefix in &known_prefixes {
+        if val.starts_with(prefix) {
+            return true;
+        }
+    }
+    let has_digits = val.chars().any(|c| c.is_ascii_digit());
+    let has_upper = val.chars().any(|c| c.is_ascii_uppercase());
+    let has_lower = val.chars().any(|c| c.is_ascii_lowercase());
+    let has_special = val.chars().any(|c| !c.is_ascii_alphanumeric());
+    if val.len() >= 20 && has_digits && has_upper && has_lower && has_special {
+        return true;
+    }
+    if val.len() >= 32 {
+        let alphanumeric = val.chars().all(|c| c.is_ascii_alphanumeric());
+        if alphanumeric && (has_digits || has_upper) {
+            return true;
+        }
+    }
+    false
+}
+
+// ── SC-12 ─────────────────────────────────────────────────────────
+
+fn check_sensitive_file_args(
+    server_name: &str,
+    server: &ServerConfig,
+    file_path: &str,
+) -> Option<Finding> {
+    let sensitive_patterns = [
+        ".env",
+        "credentials",
+        ".pem",
+        ".key",
+        ".crt",
+        ".cer",
+        "id_rsa",
+        "id_ed25519",
+        "id_ecdsa",
+        "authorized_keys",
+        ".htpasswd",
+        "shadow",
+        "master.key",
+        "secrets.yml",
+    ];
+
+    let args: Vec<&str> = server
+        .args
+        .as_ref()
+        .map(|a| a.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    for arg in &args {
+        let lower = arg.to_lowercase();
+        for pattern in &sensitive_patterns {
+            if lower.contains(pattern) {
+                return Some(make_finding(
+                    "sensitive-file-args",
+                    server_name,
+                    file_path,
+                    Severity::Medium,
+                    "secrets",
+                    &format!("Sensitive file referenced in startup arguments: {pattern}"),
+                    arg,
+                    "Avoid passing sensitive files as startup arguments; use environment variables instead",
+                    false,
+                ));
+            }
+        }
+    }
+
+    if let Some(cmd) = server.get_command() {
+        let lower = cmd.to_lowercase();
+        for pattern in &sensitive_patterns {
+            if lower.contains(pattern) {
+                return Some(make_finding(
+                    "sensitive-file-args",
+                    server_name,
+                    file_path,
+                    Severity::Medium,
+                    "secrets",
+                    &format!("Sensitive file referenced in command: {pattern}"),
+                    cmd,
+                    "Avoid passing sensitive files in command; use environment variables instead",
+                    false,
+                ));
+            }
+        }
+    }
+
+    None
+}
+
+// ── SC-14 ─────────────────────────────────────────────────────────
+
+fn check_unsafe_filesystem(
+    server_name: &str,
+    server: &ServerConfig,
+    file_path: &str,
+) -> Option<Finding> {
+    let args: Vec<&str> = server
+        .args
+        .as_ref()
+        .map(|a| a.iter().map(String::as_str).collect())
+        .unwrap_or_default();
+
+    for arg in &args {
+        let trimmed = arg.trim();
+        if trimmed == "/" || trimmed == "~" || trimmed == "C:\\" {
+            return Some(make_finding(
+                "unsafe-filesystem",
+                server_name,
+                file_path,
+                Severity::High,
+                "permissions",
+                "Filesystem server allows access to root directory",
+                &format!("args contains: {arg}"),
+                "Restrict filesystem access to specific directories only",
+                false,
+            ));
+        }
+        if trimmed.starts_with("/root")
+            || trimmed.starts_with("/etc")
+            || trimmed.starts_with("/home/")
+        {
+            let is_fs_server = server
+                .get_command()
+                .map(|c| {
+                    let c = c.to_lowercase();
+                    c.contains("filesystem")
+                        || c.contains("fs")
+                        || c.contains("npx")
+                        || c.contains("uvx")
+                })
+                .unwrap_or(true);
+            if is_fs_server {
+                return Some(make_finding(
+                    "unsafe-filesystem",
+                    server_name,
+                    file_path,
+                    Severity::High,
+                    "permissions",
+                    &format!("Filesystem server may have overly broad access: {arg}"),
+                    arg,
+                    "Restrict filesystem access to application-specific directories",
+                    false,
+                ));
+            }
+        }
+    }
+
     None
 }
 
@@ -629,5 +838,120 @@ mod tests {
         };
         let f = find("auto-approve", &s).unwrap();
         assert_eq!(f.severity, Severity::High);
+    }
+
+    #[test]
+    fn test_sc11_env_secret_leak() {
+        let mut env = HashMap::new();
+        env.insert("NODE_OPTIONS".into(), "sk-ant-api03-xxxxyyyyzzzz".into());
+        let s = ServerConfig {
+            env: Some(env),
+            ..make_server()
+        };
+        let f = find("env-secret-leak", &s).unwrap();
+        assert_eq!(f.severity, Severity::High);
+        assert!(f.auto_fixable);
+    }
+
+    #[test]
+    fn test_sc11_env_var_is_safe() {
+        let mut env = HashMap::new();
+        env.insert("MY_VAR".into(), "${MY_VAR}".into());
+        let s = ServerConfig {
+            env: Some(env),
+            ..make_server()
+        };
+        assert!(find("env-secret-leak", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc11_empty_env_is_safe() {
+        let s = make_server();
+        assert!(find("env-secret-leak", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc12_sensitive_file_args() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec![
+                "-y".into(),
+                "@modelcontextprotocol/server-filesystem".into(),
+                "/path/to/.env".into(),
+            ]),
+            ..make_server()
+        };
+        let f = find("sensitive-file-args", &s).unwrap();
+        assert_eq!(f.severity, Severity::Medium);
+        assert!(f.evidence.contains(".env"));
+    }
+
+    #[test]
+    fn test_sc12_pem_file() {
+        let s = ServerConfig {
+            command: Some("node".into()),
+            args: Some(vec![
+                "server.js".into(),
+                "--key".into(),
+                "private.pem".into(),
+            ]),
+            ..make_server()
+        };
+        let f = find("sensitive-file-args", &s).unwrap();
+        assert!(f.evidence.contains(".pem"));
+    }
+
+    #[test]
+    fn test_sc12_no_args_is_safe() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec!["-y".into(), "safe-package".into()]),
+            ..make_server()
+        };
+        assert!(find("sensitive-file-args", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc14_unsafe_filesystem_root() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec![
+                "-y".into(),
+                "@modelcontextprotocol/server-filesystem".into(),
+                "/".into(),
+            ]),
+            ..make_server()
+        };
+        let f = find("unsafe-filesystem", &s).unwrap();
+        assert_eq!(f.severity, Severity::High);
+    }
+
+    #[test]
+    fn test_sc14_unsafe_filesystem_home() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec![
+                "-y".into(),
+                "@modelcontextprotocol/server-filesystem".into(),
+                "~".into(),
+            ]),
+            ..make_server()
+        };
+        let f = find("unsafe-filesystem", &s).unwrap();
+        assert_eq!(f.severity, Severity::High);
+    }
+
+    #[test]
+    fn test_sc14_restricted_path_is_safe() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec![
+                "-y".into(),
+                "@modelcontextprotocol/server-filesystem".into(),
+                "/project/data".into(),
+            ]),
+            ..make_server()
+        };
+        assert!(find("unsafe-filesystem", &s).is_none());
     }
 }
