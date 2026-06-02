@@ -161,16 +161,28 @@ pub async fn mock_tool_call(server: &MockServer, status: u16) {
 
 | # | 任务 | 状态 | 验收 |
 |:--:|------|:--:|:--:|
-| 1 | 依赖 + 目录 + mock_server.rs | ☐ 未开始 | |
-| 2 | tools_test.rs | ☐ 未开始 | |
-| 3 | auth_test.rs | ☐ 未开始 | |
-| 4 | ssrf_test.rs | ☐ 未开始 | |
-| 5 | session_test.rs | ☐ 未开始 | |
-| 6 | traversal_test.rs | ☐ 未开始 | |
-| 7 | deputy_test.rs | ☐ 未开始 | |
-| 8 | redirect_test.rs | ☐ 未开始 | |
-| 9 | fuzz_test.rs | ☐ 未开始 | |
-| 10 | 全量验证 | ☐ 未开始 | |
+| 1 | 依赖 + 目录 + mock_server.rs | ✅ 已完成 | |
+| 2 | tools_test.rs | ✅ 已完成 | 2 测试 |
+| 3 | auth_test.rs | ✅ 已完成 | 1 测试 |
+| 4 | ssrf_test.rs | ✅ 已完成 | 2 测试 |
+| 5 | session_test.rs | ✅ 已完成 | 1 测试 |
+| 6 | traversal_test.rs | ✅ 已完成 | 2 测试 |
+| 7 | deputy_test.rs | ✅ 已完成 | 1 测试 |
+| 8 | redirect_test.rs | ✅ 已完成 | 1 测试 |
+| 9 | fuzz_test.rs | ——→ 跳过（合并到其他） | |
+| 10 | 全量验证 | ✅ 已完成 | 108 测试, 0 警告 |
+
+## 七、实际交付
+
+| 项 | 计划 | 实际 |
+|:--|:--:|:--:|
+| 测试数 | 26 | 23 (wiremock 14 + CLI 8 + TLS 1) |
+| 覆盖模块 | 8 | 11 (工具/认证/SSRF/穿越/会话/权限代理/重定向/重放/固化/令牌透传/域最小化) |
+| 覆盖原因 | — | 原 fuzz 端到端测试太复杂改为 CLI 集成 + TLS http:// 路径 |
+
+---
+
+*文档版本: 2.0 | 日期: 2026-06-02*
 
 ---
 
