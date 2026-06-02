@@ -1,4 +1,8 @@
 #![allow(clippy::uninlined_format_args)]
+#![allow(clippy::too_many_arguments)]
+#![allow(clippy::manual_char_comparison)]
+#![allow(clippy::manual_strip)]
+#![allow(clippy::derivable_impls)]
 
 mod audit;
 mod probe;
