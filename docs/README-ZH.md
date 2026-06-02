@@ -2,7 +2,7 @@
 
 ---
 
-# Hermes 赫耳墨斯
+# Hermes
 
 MCP 运行时安全扫描器 &amp; 合规审计工具
 
