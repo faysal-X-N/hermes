@@ -38,7 +38,7 @@ runs:
 
     - name: Install Hermes
       shell: bash
-      run: cargo install hermes --locked || cargo install --git https://github.com/faysal-X-N/hermes --locked
+      run: cargo install --git https://github.com/faysal-X-N/hermes --locked
 
     - name: Run Hermes Audit
       id: scan
