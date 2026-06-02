@@ -46,11 +46,6 @@
 | `--timeout <seconds>` | P1 | probe,fuzz | 探测超时(默认30s) |
 | `--audit-key <file>` | P1 | audit,probe | HMAC 审计链密钥文件路径(16字节以上)，也支持环境变量 `HERMES_AUDIT_KEY`。verify 时需同一密钥 |
 | `--init-key` | P1 | audit | 交互式创建 HMAC 审计链密钥文件，引导用户完成首次设置 |
-| `--sm2` | P3 | verify | 审计链验证签名使用 SM2，需私钥文件 |
-
-| `--sm3` | P3 | audit,verify | 审计链哈希使用 SM3(替代 SHA-256) |
-
-| `--sm4` | P3 | report | 加密输出报告文件(替代 AES-256-GCM) |
 
 ---
 
@@ -183,7 +178,6 @@ exceptions:
 # 合规要求
 compliance:
   dengbao_level: 2  # 等保二级
-  require_sm2: false
   gdpr_scope: false
 ```
 
@@ -197,7 +191,6 @@ compliance:
 | AU-02 | 审计链文件 | P1 | 输出 `chain-{command}-{iso_timestamp}.json`，包含该次会话的全部检测记录 |
 | AU-03 | 审计链验证 | P1 | `hermes verify` 重算 HMAC 链，检测是否被篡改 |
 | AU-04 | 审计记录结构 | P1 | 每条记录: 时间戳、规则ID、严重级别、文件/目标、检测值、修复建议 |
-| AU-05 | 可选国密 | P3 | `--sm3` 使用 SM3 替代 SHA-256; `--sm2` 使用 SM2 签名 |
 
 **审计记录格式:**
 
@@ -310,15 +303,11 @@ compliance:
 
 ---
 
-### FR-09 国密支持(中国合规)
+### FR-09 SM-05 等保策略预设
 
 | ID | 功能 | 优先级 | 说明 |
 |:--|------|:--:|------|
-| SM-01 | SM2 签名 | P3 | Cargo feature `sm-crypto` 可选编译。当前唯一 Rust 库 `libsm` 2.5 年未更新，社区需求极低 |
-| SM-02 | SM3 哈希 | P3 | 同上 |
-| SM-03 | SM4 加密 | P3 | 同上 |
-| SM-04 | 国密合规检测 | P3 | 检测 MCP Server 是否支持国密算法(等保三级要求)，依赖 SM-01~03 |
-| SM-05 | 等保策略预设 | P1 | `--preset dengbao` 在 audit/probe/fuzz 命令中启用内置等保 2.0 二级合规规则集，编译为 `BuiltinPreset::Dengbao` 枚举变体嵌入二进制，零文件依赖。规则映射见下表。P2 通过 `hermes policy init --template dengbao` 将同一规则集序列化为 YAML 写盘 |
+| SM-05 | 等保策略预设 | P1 | `--preset dengbao` 在 audit/probe/fuzz 命令中启用内置等保 2.0 二级合规规则集，编译为 `BuiltinPreset` 嵌入二进制，零文件依赖。`hermes policy --template dengbao` 可序列化为 JSON 写盘 |
 
 **Dengbao 预设规则映射（等保 2.0 二级）:**
 
@@ -331,43 +320,10 @@ compliance:
 | 软件容错 | FZ-01(empty-input), FZ-08(crash-detect) |
 | 网络安全 | SC-07(bind-public-interface), PR-08(ssrf-probe) |
 
-**实现方式:** 复用 FRP-X 的 `fproxy-crypto` crate，通过 Cargo feature `sm-crypto` 控制编译。默认不编译国密，国际用户不受影响。
+---
 
-```toml
-[features]
-default = []
-sm-crypto = ["sm2", "sm3", "sm4"]
-
-[dependencies]
-clap = { version = "4", features = ["derive"] }
-tokio = { version = "1.38", features = ["full"] }
-serde = { version = "1", features = ["derive"] }
-serde_json = "1"
-serde_yaml_ng = "0.10"
-reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
-rustls = { version = "0.23", default-features = false, features = ["ring", "tls12"] }
-tracing = "0.1"
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
-chrono = { version = "0.4", features = ["serde"] }
-uuid = { version = "1", features = ["v4"] }
-sha2 = "0.10"
-hmac = "0.12"
-hex = "0.4"
-color-eyre = "0.6"
-indicatif = "0.17"
-console = "0.15"
-sm2 = { version = "0.13", optional = true }
-sm3 = { version = "0.5", optional = true }
-sm4 = { version = "0.6", optional = true }
-```
-
-### 依赖版本说明
-
-| 注意项 | 说明 |
-|------|------|
-| `serde_yaml` 已废弃 | 官方废弃。使用社区维护的替代品 `serde_yaml_ng 0.10` |
+### FR-10 依赖管理
 | `rustls` 显式使用 `ring` | `aws-lc-rs`(默认)需要 C 编译器。用 `ring` 纯 Rust 实现，与 FRP-X 一致 |
-| `sm3/sm4` 版本 | 0.5 和 0.6 是当前 crates.io 最新稳定版 |
 | `reqwest 0.12` | 0.13 已发布但可能有 breaking changes。P0 阶段用 0.12 |
 
 ---
@@ -378,7 +334,7 @@ sm4 = { version = "0.6", optional = true }
 |:--|------|------|
 | NF-01 | 性能 | 静态扫描 100 个配置文件 < 5 秒 |
 | NF-02 | 性能 | 运行时探测单个 Server < 60 秒 |
-| NF-03 | 二进制大小 | 单二进制 < 15MB(不含国密) |
+| NF-03 | 二进制大小 | 单二进制 < 15MB |
 | NF-04 | 跨平台 | Windows / Linux / macOS |
 | NF-05 | 无外部依赖 | 纯 Rust 二进制，无需 Node/Python |
 | NF-06 | 离线可用 | 静态扫描无需网络 |
@@ -409,7 +365,7 @@ sm4 = { version = "0.6", optional = true }
 | **P0** | v0.1.0 | 2026-06-02 | CLI + 静态扫描(SC01-08) + 运行时基本探测(PR01-07) + JSON/终端输出 + CI(3平台+MSRV+双lint) | ✅ 已完成 |
 | **P1** | v0.2.0 | 2026-06-02 | Fuzz 引擎(FZ-01/02/03/04/08) + 策略引擎(PL-01~03) + 审计链(AU-01~04) + 等保预设(SM-05) + SC-11/12/14 + PR-08/10/13 + HTML报告 + `hermes fuzz`/`verify`/`report` 命令 | ✅ 已完成 |
 | **P2** | v0.3.0 | 2026-06-02 | 供应链(SC-10/15) + SARIF + --fix + GitHub Action + 全部P2规则(SC-09/13/PR-09~16/FZ-05~07) + 白名单(PL-04) + 预设(PL-05) + 基线(PL-06) + 管理HTML(RP-05) + 等保报告(RP-07) + policy命令 | ✅ 已完成 |
-| **P3** | v1.0.0 | — | 国密(SM1-4, feature-gated) + wiremock集成测试 + cargo-dist预编译二进制 + shell补全 + policy check(CLI-06) + crates.io发布 | — |
+| **P3** | v1.0.0 | — | wiremock集成测试 + cargo-dist预编译二进制 + shell补全 + policy check(CLI-06) + crates.io发布 | — |
 | **v1.0** | v1.0.0 | +2 周 | 文档完善 + 发布到 crates.io | — |
 
 ### P0 已交付清单
@@ -441,7 +397,6 @@ sm4 = { version = "0.6", optional = true }
 | 终端输出 | console + indicatif | 彩色报告 + 进度条 |
 | 时间 | chrono | 证书过期检测 |
 | 审计链 | HMAC-SHA256 (复用 FRP-X) | 金融级审计 |
-| 国密 | SM2/SM3/SM4 (复用 FRP-X) | feature flag 可选 |
 
 ---
 
@@ -487,12 +442,6 @@ sm4 = { version = "0.6", optional = true }
 | serde_yaml_ng 0.10 | 策略文件解析 |
 
 **P2 计划加入 (feature `sm-crypto`):**
-
-| Crate | 用途 |
-|------|------|
-| sm2 0.13 | 国密签名 |
-| sm3 0.5 | 国密哈希 |
-| sm4 0.6 | 国密加密 |
 
 ### 维护风险提示
 

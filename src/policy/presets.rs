@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::types::BuiltinPreset;
 use crate::audit::types::Severity;
 use std::collections::HashMap;
@@ -98,5 +97,25 @@ pub fn enterprise_preset() -> BuiltinPreset {
         name: "enterprise".into(),
         min_severity: Some(Severity::Medium),
         rule_state: rules,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_basic_preset_count() {
+        let p = basic_preset();
+        assert_eq!(p.rule_state.len(), 3);
+        assert!(p.rule_state.contains_key("hardcoded-api-key"));
+        assert_eq!(p.min_severity, Some(Severity::Critical));
+    }
+
+    #[test]
+    fn test_dengbao_preset_count() {
+        let p = dengbao_preset();
+        assert_eq!(p.rule_state.len(), 8);
+        assert!(p.rule_state.contains_key("no-authentication"));
     }
 }

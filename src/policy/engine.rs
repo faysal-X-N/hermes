@@ -1,4 +1,4 @@
-#![allow(dead_code)]
+#[allow(unused_imports)]
 use super::types::{BuiltinPreset, PolicyConfig};
 use crate::audit::types::Finding;
 
@@ -28,6 +28,7 @@ pub fn apply_policy(findings: &mut Vec<Finding>, policy: &PolicyConfig) {
     }
 }
 
+#[cfg(test)]
 pub fn apply_preset(findings: &mut Vec<Finding>, preset: &BuiltinPreset) {
     findings.retain(|f| {
         let enabled = preset.rule_state.get(&f.rule_id).copied().unwrap_or(false);

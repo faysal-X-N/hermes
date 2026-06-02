@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::audit::types::{Finding, Severity};
 
 pub fn build_html_audit(path: &str, findings: &[Finding], score: u32, grade: &str) -> String {
@@ -333,4 +332,79 @@ fn build_top_findings(findings: &[Finding]) -> String {
         })
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audit::types::{Finding, Severity};
+
+    fn f(rule_id: &str, severity: Severity) -> Finding {
+        Finding {
+            rule_id: rule_id.into(),
+            severity,
+            category: "test".into(),
+            title: "Test".into(),
+            file: "test.json".into(),
+            server_name: "test".into(),
+            line: None,
+            evidence: "ev".into(),
+            recommendation: "fix".into(),
+            auto_fixable: false,
+            references: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_build_html_audit_contains_doctype() {
+        let findings = vec![f("no-tls", Severity::Medium)];
+        let html = build_html_audit("test", &findings, 75, "B");
+        assert!(html.contains("<!DOCTYPE html>"));
+        assert!(html.contains("75"));
+        assert!(html.contains("B"));
+        assert!(html.contains("no-tls"));
+    }
+
+    #[test]
+    fn test_build_html_management_has_charts() {
+        let findings = vec![
+            f("no-tls", Severity::Medium),
+            f("hardcoded-api-key", Severity::Critical),
+        ];
+        let html = build_html_management("test", &findings, 50, "D", 1, 100);
+        assert!(html.contains("bar-track"));
+        assert!(html.contains("Management Report"));
+        assert!(html.contains("Dengbao"));
+    }
+
+    #[test]
+    fn test_build_html_probe_contains_target() {
+        let findings = vec![crate::probe::types::ProbeFinding {
+            rule_id: "ssrf-probe".into(),
+            severity: Severity::Critical,
+            category: "network".into(),
+            title: "SSRF".into(),
+            target: "https://test.com".into(),
+            evidence: "proof".into(),
+            recommendation: "fix".into(),
+        }];
+        let html = build_html_probe("https://test.com", &findings);
+        assert!(html.contains("https://test.com"));
+        assert!(html.contains("ssrf-probe"));
+    }
+
+    #[test]
+    fn test_build_dengbao_table_has_six_rows() {
+        let html = build_dengbao_table(&[]);
+        assert!(html.contains("访问控制"));
+        assert!(html.contains("网络安全"));
+        assert!(html.contains("PASS"));
+    }
+
+    #[test]
+    fn test_critical_is_red() {
+        let findings = vec![f("hardcoded-api-key", Severity::Critical)];
+        let html = build_html_management("test", &findings, 0, "F", 1, 0);
+        assert!(html.contains("#ff4444"));
+    }
 }

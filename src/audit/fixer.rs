@@ -125,3 +125,40 @@ pub fn apply_fixes_from_findings(findings: &[Finding], dry_run: bool) {
         eprintln!("Fixed: {file}");
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::super::types::{Finding, Severity};
+    use super::*;
+
+    fn f(rule_id: &str, auto_fixable: bool) -> Finding {
+        Finding {
+            rule_id: rule_id.into(),
+            severity: Severity::High,
+            category: "test".into(),
+            title: "Test".into(),
+            file: "nonexistent.json".into(),
+            server_name: "test".into(),
+            line: None,
+            evidence: "ev".into(),
+            recommendation: "fix".into(),
+            auto_fixable,
+            references: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_apply_fixes_empty_findings() {
+        apply_fixes_from_findings(&[], true);
+    }
+
+    #[test]
+    fn test_apply_fixes_non_fixable() {
+        apply_fixes_from_findings(&[f("no-tls", false)], true);
+    }
+
+    #[test]
+    fn test_apply_fixes_nonexistent_file_handles_gracefully() {
+        apply_fixes_from_findings(&[f("hardcoded-api-key", true)], true);
+    }
+}

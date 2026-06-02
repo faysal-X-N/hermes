@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::types::{ProbeContext, ProbeFinding};
 use crate::audit::types::Severity;
 use reqwest::Client;
@@ -179,4 +178,39 @@ fn check_incremental(ids: &[String]) -> bool {
         .count();
 
     increasing_count as f64 >= (ids.len() - 1) as f64 * 0.7
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_is_uuid_valid() {
+        assert!(is_uuid(&["550e8400-e29b-41d4-a716-446655440000".into()]));
+    }
+
+    #[test]
+    fn test_is_uuid_invalid() {
+        assert!(!is_uuid(&["not-a-uuid".into()]));
+    }
+
+    #[test]
+    fn test_is_hex_format_yes() {
+        assert!(is_hex_format(&["a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6".into()]));
+    }
+
+    #[test]
+    fn test_is_hex_format_no() {
+        assert!(!is_hex_format(&["xyz123".into()]));
+    }
+
+    #[test]
+    fn test_check_incremental_true() {
+        assert!(check_incremental(&["1".into(), "2".into(), "3".into(), "4".into()]));
+    }
+
+    #[test]
+    fn test_check_incremental_false() {
+        assert!(!check_incremental(&["550e8400-e29b-41d4-a716-446655440000".into(), "6ba7b810-9dad-11d1-80b4-00c04fd430c8".into()]));
+    }
 }

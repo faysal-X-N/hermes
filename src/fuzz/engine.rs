@@ -1,7 +1,7 @@
-#![allow(dead_code)]
 use super::payloads;
 use super::types::{FuzzContext, FuzzResult};
 use crate::audit::types::Severity;
+use crate::probe::common::discover_tools;
 use reqwest::Client;
 use serde_json::Value;
 use std::time::Duration;
@@ -41,8 +41,24 @@ pub async fn run_fuzz(ctx: &FuzzContext, test_ids: &[&str]) -> Vec<FuzzResult> {
                     }
                 }
             }
-            "FZ-07" => {
-                for payload in payloads::prompt_injection_payloads() {
+            "FZ-02" => {
+                for payload in payloads::oversized_payloads() {
+                    for tool in &tools {
+                        let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
+                        results.push(result);
+                    }
+                }
+            }
+            "FZ-03" => {
+                for payload in payloads::special_char_payloads() {
+                    for tool in &tools {
+                        let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
+                        results.push(result);
+                    }
+                }
+            }
+            "FZ-04" => {
+                for payload in payloads::path_injection_payloads() {
                     for tool in &tools {
                         let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
                         results.push(result);
@@ -65,6 +81,14 @@ pub async fn run_fuzz(ctx: &FuzzContext, test_ids: &[&str]) -> Vec<FuzzResult> {
                     }
                 }
             }
+            "FZ-07" => {
+                for payload in payloads::prompt_injection_payloads() {
+                    for tool in &tools {
+                        let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
+                        results.push(result);
+                    }
+                }
+            }
             _ => {
                 results.push(FuzzResult {
                     test_id: test_id.to_string(),
@@ -79,41 +103,6 @@ pub async fn run_fuzz(ctx: &FuzzContext, test_ids: &[&str]) -> Vec<FuzzResult> {
     }
 
     results
-}
-
-async fn discover_tools(client: &Client, base: &str) -> Option<Vec<String>> {
-    let body = serde_json::json!({
-        "jsonrpc": "2.0",
-        "method": "tools/list",
-        "params": {},
-        "id": 1
-    });
-
-    let resp = client
-        .post(format!("{base}/mcp"))
-        .json(&body)
-        .header("Content-Type", "application/json")
-        .send()
-        .await
-        .ok()?;
-
-    let json: Value = resp.json().await.ok()?;
-    let tools: Vec<String> = json
-        .get("result")
-        .and_then(|r| r.get("tools"))
-        .and_then(|t| t.as_array())
-        .map(|arr| {
-            arr.iter()
-                .filter_map(|t| t.get("name").and_then(|n| n.as_str()).map(String::from))
-                .collect()
-        })
-        .unwrap_or_default();
-
-    if tools.is_empty() {
-        None
-    } else {
-        Some(tools)
-    }
 }
 
 async fn fuzz_tool(

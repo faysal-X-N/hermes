@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::audit::types::{Finding, Severity};
 use serde_json::{json, Value};
 

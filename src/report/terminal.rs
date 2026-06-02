@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::audit::types::{Finding, Severity};
 use console::{style, Color};
 
@@ -13,30 +12,6 @@ pub struct ScanStats {
     pub duration_ms: u64,
     pub items_scanned: String,
     pub files_scanned: usize,
-}
-
-impl ScanStats {
-    pub fn from_counts(
-        total: usize,
-        critical: usize,
-        high: usize,
-        medium: usize,
-        low: usize,
-        info: usize,
-        duration_ms: u64,
-    ) -> Self {
-        Self {
-            total,
-            critical,
-            high,
-            medium,
-            low,
-            info,
-            duration_ms,
-            items_scanned: String::new(),
-            files_scanned: 0,
-        }
-    }
 }
 
 pub fn print_header(title: &str, command: &str) {
@@ -275,4 +250,59 @@ pub fn build_probe_report(
         writeln!(buf).ok();
     }
     buf
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn f(rule_id: &str, severity: Severity) -> Finding {
+        Finding {
+            rule_id: rule_id.into(),
+            severity,
+            category: "test".into(),
+            title: "Test".into(),
+            file: "test.json".into(),
+            server_name: "test".into(),
+            line: None,
+            evidence: "ev".into(),
+            recommendation: "fix".into(),
+            auto_fixable: false,
+            references: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_build_audit_report_contains_score() {
+        let stats = ScanStats {
+            total: 1,
+            critical: 1,
+            high: 0,
+            medium: 0,
+            low: 0,
+            info: 0,
+            duration_ms: 50,
+            items_scanned: String::new(),
+            files_scanned: 3,
+        };
+        let report = build_audit_report("test", 75, "B", &stats, &[f("no-tls", Severity::Medium)]);
+        assert!(report.contains("75/100"));
+    }
+
+    #[test]
+    fn test_build_probe_report_contains_target() {
+        let stats = ScanStats {
+            total: 0,
+            critical: 0,
+            high: 0,
+            medium: 0,
+            low: 0,
+            info: 0,
+            duration_ms: 0,
+            items_scanned: String::new(),
+            files_scanned: 0,
+        };
+        let report = build_probe_report("https://x.com", &stats, &[], &[]);
+        assert!(report.contains("https://x.com"));
+    }
 }

@@ -87,3 +87,41 @@ fn sub_score(findings: &[Finding], category: &str) -> u32 {
 fn count(findings: &[Finding], severity: &Severity) -> usize {
     findings.iter().filter(|f| &f.severity == severity).count()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::audit::types::Finding;
+
+    fn f(rule_id: &str, severity: Severity) -> Finding {
+        Finding {
+            rule_id: rule_id.into(),
+            severity,
+            category: "test".into(),
+            title: "T".into(),
+            file: "x".into(),
+            server_name: "s".into(),
+            line: None,
+            evidence: "e".into(),
+            recommendation: "r".into(),
+            auto_fixable: false,
+            references: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn test_build_audit_json_has_required_fields() {
+        let findings = vec![f("no-tls", Severity::Medium)];
+        let report = build_audit_json("test.json", &findings, 1, 50, 1);
+        assert_eq!(report.target, "test.json");
+        assert!(!report.findings.is_empty());
+    }
+
+    #[test]
+    fn test_to_json_produces_valid_json() {
+        let findings = vec![f("no-tls", Severity::Medium)];
+        let report = build_audit_json("test.json", &findings, 1, 50, 1);
+        let json = to_json(&report);
+        assert!(serde_json::from_str::<serde_json::Value>(&json).is_ok());
+    }
+}

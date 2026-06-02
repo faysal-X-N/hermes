@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::hmac;
 use super::types::AuditChain;
 use std::fs;

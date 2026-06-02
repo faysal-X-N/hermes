@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use crate::audit::types::Severity;
 use serde::Serialize;
 

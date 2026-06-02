@@ -152,7 +152,7 @@ enum Commands {
 }
 
 fn main() {
-    color_eyre::install().ok();
+    let _ = color_eyre::install();
 
     let cli = Cli::parse();
 
@@ -288,11 +288,11 @@ fn run_audit(args: &AuditArgs) -> i32 {
     let duration_ms = start.elapsed().as_millis() as u64;
     let auto_fixable = all_findings.iter().filter(|f| f.auto_fixable).count();
 
-    let critical = count_audit(&all_findings, &Severity::Critical);
-    let high = count_audit(&all_findings, &Severity::High);
-    let medium = count_audit(&all_findings, &Severity::Medium);
-    let low = count_audit(&all_findings, &Severity::Low);
-    let info = count_audit(&all_findings, &Severity::Info);
+    let critical = all_findings.iter().filter(|f| f.severity == Severity::Critical).count();
+    let high = all_findings.iter().filter(|f| f.severity == Severity::High).count();
+    let medium = all_findings.iter().filter(|f| f.severity == Severity::Medium).count();
+    let low = all_findings.iter().filter(|f| f.severity == Severity::Low).count();
+    let info = all_findings.iter().filter(|f| f.severity == Severity::Info).count();
 
     if verbose {
         tracing::debug!("audit complete: {} findings, score={}, grade={}, {}ms",
@@ -390,11 +390,11 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     let duration_ms = start.elapsed().as_millis() as u64;
 
     let total = all_findings.len();
-    let critical = count_probe(&all_findings, &Severity::Critical);
-    let high = count_probe(&all_findings, &Severity::High);
-    let medium = count_probe(&all_findings, &Severity::Medium);
-    let low = count_probe(&all_findings, &Severity::Low);
-    let info = count_probe(&all_findings, &Severity::Info);
+    let critical = all_findings.iter().filter(|f| f.severity == Severity::Critical).count();
+    let high = all_findings.iter().filter(|f| f.severity == Severity::High).count();
+    let medium = all_findings.iter().filter(|f| f.severity == Severity::Medium).count();
+    let low = all_findings.iter().filter(|f| f.severity == Severity::Low).count();
+    let info = all_findings.iter().filter(|f| f.severity == Severity::Info).count();
 
     let (score, grade) = compute_probe_score(&all_findings);
 
@@ -488,14 +488,6 @@ fn compute_probe_score(findings: &[probe::types::ProbeFinding]) -> (u32, String)
     };
 
     (score, grade.to_string())
-}
-
-fn count_audit(findings: &[audit::types::Finding], severity: &Severity) -> usize {
-    findings.iter().filter(|f| &f.severity == severity).count()
-}
-
-fn count_probe(findings: &[probe::types::ProbeFinding], severity: &Severity) -> usize {
-    findings.iter().filter(|f| &f.severity == severity).count()
 }
 
 fn save_audit_chain(key_path: &str, command: &str, findings: &[audit::types::Finding]) {
@@ -664,7 +656,7 @@ async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool
     }
 
     let ctx = fuzz::types::FuzzContext::new(url, timeout);
-    let test_ids: &[&str] = &["FZ-01", "FZ-02", "FZ-03", "FZ-04"];
+    let test_ids: &[&str] = &["FZ-01", "FZ-02", "FZ-03", "FZ-04", "FZ-05", "FZ-06", "FZ-07"];
     let results = fuzz::engine::run_fuzz(&ctx, test_ids).await;
 
     let crashed = results.iter().filter(|r| r.severity >= crate::audit::types::Severity::High).count();

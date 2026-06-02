@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::types::{AuditChain, AuditRecord};
 use hmac::{Hmac, Mac};
 use sha2::{Digest, Sha256};

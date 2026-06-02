@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use serde_json::Value;
 
 pub fn empty_payloads() -> Vec<Value> {

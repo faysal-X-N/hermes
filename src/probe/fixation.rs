@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 use super::types::{ProbeContext, ProbeFinding};
 use crate::audit::types::Severity;
 use reqwest::Client;
