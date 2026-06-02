@@ -1312,34 +1312,6 @@ mod tests {
         use std::os::unix::fs::PermissionsExt;
         let dir = std::env::temp_dir();
         let path = dir.join("hermes_test_0644.json");
-        std::fs::write(&path, r#"{"mcpServers":{"s":{"command":"npx"}}}"#).unwrap();
-        let mut perms = std::fs::metadata(&path).unwrap().permissions();
-        perms.set_mode(0o644);
-        std::fs::set_permissions(&path, perms).unwrap();
-
-        let contents = std::fs::read_to_string(&path).unwrap();
-        let config = crate::audit::parser::parse_config_from_bytes(contents.as_bytes()).unwrap();
-        let server = &config.servers["s"];
-        let f = scan_server(
-            "world-readable-config",
-            "s",
-            server,
-            &path.to_string_lossy(),
-        )
-        .unwrap();
-        assert_eq!(f.rule_id, "world-readable-config");
-        assert_eq!(f.severity, Severity::Medium);
-        assert!(f.evidence.contains("644"));
-
-        let _ = std::fs::remove_file(&path);
-    }
-
-    #[cfg(unix)]
-    #[test]
-    fn test_world_readable_config_detected() {
-        use std::os::unix::fs::PermissionsExt;
-        let dir = std::env::temp_dir();
-        let path = dir.join("hermes_test_0644.json");
         std::fs::write(&path, "{}").unwrap();
         let mut perms = std::fs::metadata(&path).unwrap().permissions();
         perms.set_mode(0o644);
