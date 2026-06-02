@@ -96,7 +96,7 @@ hermes verify .hermes/chain-audit-*.json --audit-key .hermes/audit.key
 ### GitHub Actions
 
 ```yaml
-- uses: faysal-X-N/hermes@main
+- uses: faysal-X-N/hermes@v0.1
   with:
     path: "."
     preset: "basic"
