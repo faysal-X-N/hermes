@@ -3,7 +3,7 @@ mod probe;
 mod report;
 
 use audit::types::{compute_score, Severity};
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::fs;
 use std::process;
 use std::time::Instant;
@@ -19,14 +19,19 @@ const P0_RULES: &[&str] = &[
     "auto-approve",
 ];
 
+#[derive(ValueEnum, Clone, Debug)]
+enum Format {
+    Json,
+}
+
 #[derive(Parser)]
 #[command(name = "hermes", version, about = "MCP Security Scanner & Compliance Auditor")]
 struct Cli {
     #[command(subcommand)]
     command: Commands,
 
-    #[arg(long, global = true, help = "Output format (json)")]
-    format: Option<String>,
+    #[arg(long, global = true, help = "Output format")]
+    format: Option<Format>,
 
     #[arg(long, global = true, help = "Write output to file")]
     output: Option<String>,
@@ -74,10 +79,10 @@ fn main() {
     }
 
     let exit_code = match cli.command {
-        Commands::Audit { path } => run_audit(&path, cli.format.as_deref(), cli.output.as_deref()),
+        Commands::Audit { path } => run_audit(&path, cli.format, cli.verbose, cli.output.as_deref()),
         Commands::Probe { url, timeout } => {
             let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(run_probe(&url, timeout, cli.format.as_deref(), cli.output.as_deref()))
+            rt.block_on(run_probe(&url, timeout, cli.format, cli.verbose, cli.output.as_deref()))
         }
     };
 
@@ -89,31 +94,37 @@ fn write_output(content: &str, output: Option<&str>) {
         if let Err(e) = fs::write(path, content) {
             eprintln!("hermes: failed to write output to {path}: {e}");
         }
-        println!("{content}");
-    } else {
-        println!("{content}");
     }
+    println!("{content}");
 }
 
-fn run_audit(path: &str, format: Option<&str>, output: Option<&str>) -> i32 {
+fn run_audit(path: &str, format: Option<Format>, verbose: bool, output: Option<&str>) -> i32 {
     let start = Instant::now();
     let result = audit::scanner::scan_path(path);
 
+    if verbose {
+        tracing::debug!("scanned {} config files, {} skipped, {} errors",
+            result.configs.len(), result.skipped.len(), result.errors.len());
+    }
+
     if !result.errors.is_empty() {
         for e in &result.errors {
-            eprintln!("hermes: {}", e);
+            eprintln!("hermes: {e}");
         }
         return 1;
     }
 
+    for w in &result.warnings {
+        eprintln!("hermes: {w}");
+    }
+
     if !result.skipped.is_empty() {
         for s in &result.skipped {
-            eprintln!("hermes: skipped: {}", s);
+            eprintln!("hermes: skipped: {s}");
         }
     }
 
     if result.configs.is_empty() {
-        eprintln!("hermes: no MCP config files found in {}", path);
         return 0;
     }
 
@@ -142,7 +153,12 @@ fn run_audit(path: &str, format: Option<&str>, output: Option<&str>) -> i32 {
     let low = count_audit(&all_findings, &Severity::Low);
     let info = count_audit(&all_findings, &Severity::Info);
 
-    if format == Some("json") {
+    if verbose {
+        tracing::debug!("audit complete: {} findings, score={}, grade={}, {}ms",
+            all_findings.len(), score, grade, duration_ms);
+    }
+
+    if matches!(format, Some(Format::Json)) {
         let report = report::json::build_audit_json(
             path, &all_findings, files_scanned, duration_ms, auto_fixable,
         );
@@ -169,11 +185,15 @@ fn run_audit(path: &str, format: Option<&str>, output: Option<&str>) -> i32 {
     if all_findings.is_empty() { 0 } else { 2 }
 }
 
-async fn run_probe(url: &str, timeout: u64, format: Option<&str>, output: Option<&str>) -> i32 {
+async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>) -> i32 {
     let start = Instant::now();
     let ctx = probe::types::ProbeContext::new(url, timeout);
 
     eprintln!("Probing {} ...", ctx.target_url);
+
+    if verbose {
+        tracing::debug!("starting probe of {} with {}s timeout", ctx.target_url, ctx.timeout_secs);
+    }
 
     let mut all_findings: Vec<probe::types::ProbeFinding> = Vec::new();
 
@@ -197,13 +217,24 @@ async fn run_probe(url: &str, timeout: u64, format: Option<&str>, output: Option
     let low = count_probe(&all_findings, &Severity::Low);
     let info = count_probe(&all_findings, &Severity::Info);
 
-    if format == Some("json") {
+    let (score, grade) = compute_probe_score(&all_findings);
+
+    if verbose {
+        tracing::debug!("probe complete: {} findings, score={}, grade={}, {}ms",
+            total, score, grade, duration_ms);
+    }
+
+    if matches!(format, Some(Format::Json)) {
         let json_report = serde_json::json!({
             "tool": "hermes",
             "version": env!("CARGO_PKG_VERSION"),
             "command": "probe",
             "timestamp": chrono::Utc::now().to_rfc3339(),
             "target": ctx.target_url,
+            "score": {
+                "grade": grade,
+                "numeric": score,
+            },
             "summary": {
                 "total": total,
                 "critical": critical,
@@ -219,6 +250,7 @@ async fn run_probe(url: &str, timeout: u64, format: Option<&str>, output: Option
         write_output(&serde_json::to_string_pretty(&json_report).unwrap(), output);
     } else {
         report::terminal::print_header(&ctx.target_url, "Probe");
+        report::terminal::print_score(score, &grade);
         report::terminal::print_probe_summary(
             total, critical, high, medium, low, info, duration_ms,
         );
@@ -235,6 +267,28 @@ async fn run_probe(url: &str, timeout: u64, format: Option<&str>, output: Option
     }
 
     if all_findings.iter().any(|f| f.severity >= Severity::High) { 2 } else { 0 }
+}
+
+fn compute_probe_score(findings: &[probe::types::ProbeFinding]) -> (u32, String) {
+    let critical = findings.iter().filter(|f| f.severity == Severity::Critical).count() as u32;
+    let high = findings.iter().filter(|f| f.severity == Severity::High).count() as u32;
+    let medium = findings.iter().filter(|f| f.severity == Severity::Medium).count() as u32;
+
+    let score = if 25 * critical + 10 * high + 3 * medium >= 100 {
+        0
+    } else {
+        100 - 25 * critical - 10 * high - 3 * medium
+    };
+
+    let grade = match score {
+        90..=100 => "A",
+        75..=89 => "B",
+        60..=74 => "C",
+        40..=59 => "D",
+        _ => "F",
+    };
+
+    (score, grade.to_string())
 }
 
 fn count_audit(findings: &[audit::types::Finding], severity: &Severity) -> usize {

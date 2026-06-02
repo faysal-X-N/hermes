@@ -7,7 +7,7 @@ pub struct McpConfig {
     pub mcp_servers: HashMap<String, ServerConfig>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct ServerConfig {
     #[serde(default)]
     pub command: Option<String>,
@@ -95,9 +95,9 @@ impl ServerConfig {
     pub fn get_command(&self) -> Option<&str> {
         self.command
             .as_deref()
-            .or_else(|| self.cmd.as_deref())
-            .or_else(|| self.run.as_deref())
-            .or_else(|| self.exec.as_deref())
+            .or(self.cmd.as_deref())
+            .or(self.run.as_deref())
+            .or(self.exec.as_deref())
     }
 
     #[allow(dead_code)]
@@ -120,16 +120,16 @@ impl ServerConfig {
     pub fn get_credential(&self) -> Option<&str> {
         self.api_key
             .as_deref()
-            .or_else(|| self.token.as_deref())
-            .or_else(|| self.access_token.as_deref())
-            .or_else(|| self.secret.as_deref())
+            .or(self.token.as_deref())
+            .or(self.access_token.as_deref())
+            .or(self.secret.as_deref())
     }
 
     pub fn get_password(&self) -> Option<&str> {
         self.password
             .as_deref()
-            .or_else(|| self.passwd.as_deref())
-            .or_else(|| self.pwd.as_deref())
+            .or(self.passwd.as_deref())
+            .or(self.pwd.as_deref())
     }
 
     pub fn has_url(&self) -> Option<&str> {
@@ -273,39 +273,5 @@ mod tests {
         };
         assert_eq!(server.host.as_deref(), Some("0.0.0.0"));
         assert_eq!(server.bind.as_deref(), Some("127.0.0.1"));
-    }
-
-    impl Default for ServerConfig {
-        fn default() -> Self {
-            Self {
-                command: None,
-                args: None,
-                cmd: None,
-                run: None,
-                exec: None,
-                env: None,
-                api_key: None,
-                token: None,
-                access_token: None,
-                secret: None,
-                password: None,
-                passwd: None,
-                pwd: None,
-                url: None,
-                host: None,
-                bind: None,
-                auto_approve: None,
-                allowed_tools: None,
-                allow: None,
-                auth: None,
-                authorization: None,
-                timeout: None,
-                description: None,
-                transport: None,
-                tools: None,
-                disabled: None,
-                extra: HashMap::new(),
-            }
-        }
     }
 }

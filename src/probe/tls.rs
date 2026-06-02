@@ -46,7 +46,7 @@ pub async fn probe_tls(ctx: &ProbeContext) -> Vec<ProbeFinding> {
                     category: "network".into(),
                     title: "Weak cipher suite negotiated".into(),
                     target: url.clone(),
-                    evidence: format!("Negotiated cipher: {}", weak),
+                    evidence: format!("Negotiated cipher: {weak}"),
                     recommendation: "Upgrade to TLS 1.3 with strong cipher suites (AES-256-GCM, ChaCha20-Poly1305)".into(),
                 });
             }
@@ -75,7 +75,7 @@ pub async fn probe_tls(ctx: &ProbeContext) -> Vec<ProbeFinding> {
                 category: "network".into(),
                 title: "TLS connection failed".into(),
                 target: url.clone(),
-                evidence: format!("Connection failed: {}", e),
+                evidence: format!("Connection failed: {e}"),
                 recommendation: "Check TLS configuration and certificate validity".into(),
             });
         }
@@ -93,13 +93,13 @@ struct TlsInfo {
 }
 
 async fn connect_and_check_tls(host: &str, port: u16, timeout_secs: u64) -> Result<TlsInfo, String> {
-    let addr = format!("{}:{}", host, port);
+    let addr = format!("{host}:{port}");
     let timeout = std::time::Duration::from_secs(timeout_secs);
 
     let tcp = tokio::time::timeout(timeout, TcpStream::connect(&addr))
         .await
         .map_err(|_| "Connection timed out".to_string())?
-        .map_err(|e| format!("TCP connection failed: {}", e))?;
+        .map_err(|e| format!("TCP connection failed: {e}"))?;
 
     let mut root_store = rustls::RootCertStore::empty();
     let native_certs = rustls_native_certs::load_native_certs();
@@ -116,16 +116,16 @@ async fn connect_and_check_tls(host: &str, port: u16, timeout_secs: u64) -> Resu
 
     let connector = TlsConnector::from(Arc::new(config));
     let server_name = ServerName::try_from(host.to_string())
-        .map_err(|e| format!("Invalid hostname: {}", e))?;
+        .map_err(|e| format!("Invalid hostname: {e}"))?;
 
     let tls_stream = tokio::time::timeout(timeout, connector.connect(server_name, tcp))
         .await
         .map_err(|_| "TLS handshake timed out".to_string())?
-        .map_err(|e| format!("TLS handshake failed: {}", e))?;
+        .map_err(|e| format!("TLS handshake failed: {e}"))?;
 
     let (_, conn) = tls_stream.into_inner();
     let _negotiated = conn.alpn_protocol();
-    let version = conn.protocol_version().map(|v| format!("{:?}", v)).unwrap_or_else(|| "unknown".into());
+    let version = conn.protocol_version().map(|v| format!("{v:?}")).unwrap_or_else(|| "unknown".into());
 
     let negotiated_cs = conn.negotiated_cipher_suite();
     let cipher = negotiated_cs
@@ -143,7 +143,7 @@ async fn connect_and_check_tls(host: &str, port: u16, timeout_secs: u64) -> Resu
             {
                 None
             } else {
-                Some(format!("{:?}", suite))
+                Some(format!("{suite:?}"))
             }
         });
 
@@ -190,7 +190,7 @@ fn check_expiry(expiry: &str) -> Option<String> {
         if days < 0 {
             Some(format!("Certificate expired {} days ago", -days))
         } else if days < 30 {
-            Some(format!("Certificate expires in {} days", days))
+            Some(format!("Certificate expires in {days} days"))
         } else {
             None
         }

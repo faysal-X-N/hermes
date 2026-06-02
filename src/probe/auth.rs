@@ -21,7 +21,7 @@ pub async fn probe_auth(ctx: &ProbeContext) -> Vec<ProbeFinding> {
         "id": 1
     });
 
-    let mcp_url = format!("{}/mcp", base);
+    let mcp_url = format!("{base}/mcp");
     let response = client
         .post(&mcp_url)
         .json(&body)
@@ -89,7 +89,7 @@ pub async fn probe_auth(ctx: &ProbeContext) -> Vec<ProbeFinding> {
                     if ws.is_success() {
                         findings.push(ProbeFinding {
                             rule_id: "auth-weak".into(),
-                            severity: Severity::Critical,
+                            severity: Severity::Medium,
                             category: "authentication".into(),
                             title: "Server accepts weak/invalid bearer tokens".into(),
                             target: url.clone(),
@@ -107,7 +107,7 @@ pub async fn probe_auth(ctx: &ProbeContext) -> Vec<ProbeFinding> {
                 category: "authentication".into(),
                 title: "Unable to connect to server — cannot verify authentication".into(),
                 target: url.clone(),
-                evidence: format!("Connection error: {}", e),
+                evidence: format!("Connection error: {e}"),
                 recommendation: "Check that the server is running and the URL is correct".into(),
             });
         }

@@ -7,7 +7,7 @@ pub fn print_header(title: &str, command: &str) {
         "{} {} {}",
         style("===").dim(),
         style("Hermes").bold().cyan(),
-        style(format!("{} Report", command)).bold().cyan()
+        style(format!("{command} Report")).bold().cyan()
     );
     println!("  {}  {}", style("Target:").dim(), title);
     println!();
@@ -24,7 +24,7 @@ pub fn print_score(score: u32, grade: &str) {
         style("Score:").dim(),
         style(score).fg(score_color).bold(),
         style("100").dim(),
-        style(format!("({})", grade)).bold(),
+        style(format!("({grade})")).bold(),
     );
 }
 
@@ -78,7 +78,7 @@ pub fn print_audit_summary(
         low,
         info,
         duration_ms,
-        &format!("{} files", files_scanned),
+        &format!("{files_scanned} files"),
     );
 }
 
@@ -131,7 +131,7 @@ pub fn print_probe_findings(
     if !tools.is_empty() {
         println!("  {} ({}):", style("Tools discovered").bold(), tools.len());
         for tool in tools {
-            println!("    - {}", tool);
+            println!("    - {tool}");
         }
         println!();
     }
@@ -198,17 +198,16 @@ pub fn build_audit_report(
     use std::fmt::Write;
     let mut buf = String::new();
     writeln!(buf, "=== Hermes Audit Report").ok();
-    writeln!(buf, "  Target:  {}", path).ok();
+    writeln!(buf, "  Target:  {path}").ok();
     writeln!(buf).ok();
-    writeln!(buf, "  Score:  {}/100  ({})", score, grade).ok();
+    writeln!(buf, "  Score:  {score}/100  ({grade})").ok();
     writeln!(
         buf,
-        "  Findings:  {} total ({} critical  {} high  {} medium  {} low  {} info)",
-        total, critical, high, medium, low, info
+        "  Findings:  {total} total ({critical} critical  {high} high  {medium} medium  {low} low  {info} info)"
     )
     .ok();
-    writeln!(buf, "  Items:  {} files", files_scanned).ok();
-    writeln!(buf, "  Duration:  {}ms", duration_ms).ok();
+    writeln!(buf, "  Items:  {files_scanned} files").ok();
+    writeln!(buf, "  Duration:  {duration_ms}ms").ok();
     writeln!(buf).ok();
     for f in findings {
         let sev = match f.severity {
@@ -228,7 +227,7 @@ pub fn build_audit_report(
         writeln!(buf, "    Fix:  {}", f.recommendation).ok();
         writeln!(buf, "    File:  {}", f.file).ok();
         if let Some(line) = f.line {
-            writeln!(buf, "    Line:  {}", line).ok();
+            writeln!(buf, "    Line:  {line}").ok();
         }
         if f.auto_fixable {
             writeln!(buf, "    Auto-fix:  auto-fixable with --fix").ok();
@@ -253,20 +252,19 @@ pub fn build_probe_report(
     use std::fmt::Write;
     let mut buf = String::new();
     writeln!(buf, "=== Hermes Probe Report").ok();
-    writeln!(buf, "  Target:  {}", target).ok();
+    writeln!(buf, "  Target:  {target}").ok();
     writeln!(buf).ok();
     writeln!(
         buf,
-        "  Findings:  {} total ({} critical  {} high  {} medium  {} low  {} info)",
-        total, critical, high, medium, low, info
+        "  Findings:  {total} total ({critical} critical  {high} high  {medium} medium  {low} low  {info} info)"
     )
     .ok();
-    writeln!(buf, "  Duration:  {}ms", duration_ms).ok();
+    writeln!(buf, "  Duration:  {duration_ms}ms").ok();
     writeln!(buf).ok();
     if !tools.is_empty() {
         writeln!(buf, "  Tools discovered ({}):", tools.len()).ok();
         for tool in tools {
-            writeln!(buf, "    - {}", tool).ok();
+            writeln!(buf, "    - {tool}").ok();
         }
         writeln!(buf).ok();
     }

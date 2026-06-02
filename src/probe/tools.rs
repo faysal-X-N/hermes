@@ -26,7 +26,7 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
         "id": 1
     });
 
-    let mcp_url = format!("{}/mcp", base);
+    let mcp_url = format!("{base}/mcp");
     let response = client
         .post(&mcp_url)
         .json(&body)
@@ -100,9 +100,9 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
                                 rule_id: "protocol-version".into(),
                                 severity: Severity::Info,
                                 category: "authentication".into(),
-                                title: format!("MCP protocol version: {}", version),
+                                title: format!("MCP protocol version: {version}"),
                                 target: url.clone(),
-                                evidence: format!("jsonrpc: {}", version),
+                                evidence: format!("jsonrpc: {version}"),
                                 recommendation: "Upgrade to the latest MCP protocol version".into(),
                             });
                         }
@@ -133,7 +133,7 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
                         category: "authentication".into(),
                         title: "Failed to parse tools/list response".into(),
                         target: url.clone(),
-                        evidence: format!("JSON parse error: {}", e),
+                        evidence: format!("JSON parse error: {e}"),
                         recommendation: "Check that MCP protocol implementation is correct".into(),
                     });
                 }
@@ -146,7 +146,7 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
                 category: "authentication".into(),
                 title: "Unable to connect to server".into(),
                 target: url.clone(),
-                evidence: format!("Connection error: {}", e),
+                evidence: format!("Connection error: {e}"),
                 recommendation: "Check that the server is running".into(),
             });
         }
@@ -159,9 +159,9 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
 }
 
 fn find_dangerous_tools(tools: &[String]) -> Vec<String> {
-    let dangerous_prefixes = &[
+    let dangerous_patterns = &[
         "delete", "remove", "execute", "shell", "exec",
-        "bash", "run", "write", "patch", "apply", "create",
+        "bash", "run_", "write", "patch", "apply", "create",
         "drop", "truncate", "sudo", "kill", "restart", "stop",
         "grant", "revoke", "admin", "root", "system",
     ];
@@ -170,9 +170,15 @@ fn find_dangerous_tools(tools: &[String]) -> Vec<String> {
         .iter()
         .filter(|name| {
             let lower = name.to_lowercase();
-            dangerous_prefixes
+            let tokens: Vec<&str> = lower.split('_').collect();
+            dangerous_patterns
                 .iter()
-                .any(|prefix| lower.starts_with(prefix) || lower.contains(&format!("_{}", prefix)))
+                .any(|pattern| {
+                    let p = pattern.trim_end_matches('_');
+                    lower.starts_with(pattern)
+                        || tokens.contains(&p)
+                        || lower.contains(&format!("_{p}"))
+                })
         })
         .cloned()
         .collect()

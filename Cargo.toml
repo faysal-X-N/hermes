@@ -3,8 +3,14 @@ name = "hermes"
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-description = "MCP Runtime Security Scanner & Compliance Auditor"
+description = "MCP Runtime Security Scanner & Compliance Auditor — static config audit, runtime TLS/auth probe, and policy enforcement for MCP servers"
 rust-version = "1.88.0"
+repository = "https://github.com/faysal-X-N/hermes"
+homepage = "https://github.com/faysal-X-N/hermes"
+documentation = "https://docs.rs/hermes"
+readme = "README.md"
+keywords = ["mcp", "security", "scanner", "audit", "cli"]
+categories = ["command-line-utilities", "development-tools::testing"]
 
 [[bin]]
 name = "hermes"
@@ -32,6 +38,7 @@ hex = "0.4"
 color-eyre = "0.6"
 indicatif = "0.17"
 console = "0.15"
+serde_yaml_ng = "0.10"
 
 [profile.release]
 opt-level = 3

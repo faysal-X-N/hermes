@@ -20,7 +20,7 @@ pub struct ProbeContext {
 impl ProbeContext {
     pub fn new(url: &str, timeout: u64) -> Self {
         let url = if !url.starts_with("http") {
-            format!("https://{}", url)
+            format!("https://{url}")
         } else {
             url.to_string()
         };

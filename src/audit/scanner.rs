@@ -11,6 +11,7 @@ struct ScanState {
     results: Vec<ParsedConfig>,
     skipped: Vec<String>,
     errors: Vec<String>,
+    warnings: Vec<String>,
 }
 
 pub fn scan_path(path: &str) -> ScanResult {
@@ -27,6 +28,7 @@ pub fn scan_path(path: &str) -> ScanResult {
         results: Vec::new(),
         skipped: Vec::new(),
         errors: Vec::new(),
+        warnings: Vec::new(),
     };
 
     if p.is_dir() {
@@ -34,19 +36,20 @@ pub fn scan_path(path: &str) -> ScanResult {
     } else if p.is_file() {
         process_file(p, &mut state);
     } else {
-        state.errors.push(format!("Path not found: {}", path));
+        state.errors.push(format!("Path not found: {path}"));
     }
 
     if state.results.is_empty() && state.errors.is_empty() {
         state
-            .errors
-            .push(format!("no MCP config files found in {}", path));
+            .warnings
+            .push(format!("no MCP config files found in {path}"));
     }
 
     ScanResult {
         configs: state.results,
         skipped: state.skipped,
         errors: state.errors,
+        warnings: state.warnings,
     }
 }
 
@@ -59,14 +62,13 @@ fn scan_glob(pattern: &str) -> ScanResult {
         results: Vec::new(),
         skipped: Vec::new(),
         errors: Vec::new(),
+        warnings: Vec::new(),
     };
 
     let is_recursive = pattern.contains("**");
 
     let base = if let Some(pos) = pattern.find('*') {
-        let base_end = pattern[..pos]
-            .rfind(|c: char| c == '/' || c == '\\')
-            .unwrap_or(0);
+        let base_end = pattern[..pos].rfind(['/', '\\']).unwrap_or(0);
         let base_path = &pattern[..base_end];
         if base_path.is_empty() {
             "."
@@ -81,11 +83,12 @@ fn scan_glob(pattern: &str) -> ScanResult {
     if !base_path.exists() {
         state
             .errors
-            .push(format!("Glob base path not found: {}", base));
+            .push(format!("Glob base path not found: {base}"));
         return ScanResult {
             configs: state.results,
             skipped: state.skipped,
             errors: state.errors,
+            warnings: state.warnings,
         };
     }
 
@@ -97,14 +100,15 @@ fn scan_glob(pattern: &str) -> ScanResult {
 
     if state.results.is_empty() && state.errors.is_empty() {
         state
-            .errors
-            .push(format!("no MCP config files matching '{}'", pattern));
+            .warnings
+            .push(format!("no MCP config files matching '{pattern}'"));
     }
 
     ScanResult {
         configs: state.results,
         skipped: state.skipped,
         errors: state.errors,
+        warnings: state.warnings,
     }
 }
 
@@ -202,8 +206,7 @@ fn match_globstar(path: &str, pattern: &str) -> bool {
 
         if i == pparts.len() - 1 {
             // Last part must match the remaining suffix, using simple glob
-            if part.starts_with('/') {
-                let part = &part[1..];
+            if let Some(part) = part.strip_prefix('/') {
                 remaining = remaining.trim_start_matches('/');
                 return match_glob_suffix(remaining, part);
             } else {
@@ -244,6 +247,7 @@ fn scan_stdin() -> ScanResult {
         results: Vec::new(),
         skipped: Vec::new(),
         errors: Vec::new(),
+        warnings: Vec::new(),
     };
 
     let mut content = String::new();
@@ -253,7 +257,7 @@ fn scan_stdin() -> ScanResult {
             Err(err) => state.errors.push(err),
         },
         Err(err) => {
-            state.errors.push(format!("Failed to read stdin: {}", err));
+            state.errors.push(format!("Failed to read stdin: {err}"));
         }
     }
 
@@ -261,6 +265,7 @@ fn scan_stdin() -> ScanResult {
         configs: state.results,
         skipped: state.skipped,
         errors: state.errors,
+        warnings: state.warnings,
     }
 }
 
@@ -325,8 +330,11 @@ fn process_file(file: &Path, state: &mut ScanState) {
 }
 
 fn parse_config_from_bytes(content: &str, source: &str) -> Result<ParsedConfig, String> {
-    let config: McpConfig = serde_json::from_str(content)
-        .map_err(|e| format!("JSON parse error in {}: {}", source, e))?;
+    let config = serde_json::from_str::<McpConfig>(content).or_else(|json_err| {
+        serde_yaml_ng::from_str::<McpConfig>(content).map_err(|yaml_err| {
+            format!("JSON parse error in {source}: {json_err}. YAML parse also failed: {yaml_err}")
+        })
+    })?;
 
     if config.mcp_servers.is_empty() {
         return Err("no mcpServers found".to_string());
@@ -343,6 +351,7 @@ pub struct ScanResult {
     pub configs: Vec<ParsedConfig>,
     pub skipped: Vec<String>,
     pub errors: Vec<String>,
+    pub warnings: Vec<String>,
 }
 
 #[cfg(test)]

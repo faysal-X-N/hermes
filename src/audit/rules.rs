@@ -20,6 +20,22 @@ pub fn scan_server(
     }
 }
 
+fn contains_word(text: &str, pattern: &str) -> bool {
+    if let Some(pos) = text.find(pattern) {
+        let before = pos == 0 || {
+            let c = text.as_bytes()[pos - 1];
+            !c.is_ascii_alphanumeric() && c != b'_' && c != b'-'
+        };
+        let after = pos + pattern.len() >= text.len() || {
+            let c = text.as_bytes()[pos + pattern.len()];
+            !c.is_ascii_alphanumeric() && c != b'_' && c != b'-'
+        };
+        before && after
+    } else {
+        false
+    }
+}
+
 fn build_command_text(server: &ServerConfig) -> String {
     let mut parts = Vec::new();
     if let Some(cmd) = server.get_command() {
@@ -68,7 +84,7 @@ fn make_dangerous_finding(
         rule_id: "dangerous-command".into(),
         severity: Severity::High,
         category: "permissions".into(),
-        title: format!("Dangerous command pattern detected: {}", pattern),
+        title: format!("Dangerous command pattern detected: {pattern}"),
         file: file_path.into(),
         server_name: server_name.into(),
         line: None,
@@ -115,7 +131,7 @@ fn check_hardcoded_api_key(
                     file_path,
                     Severity::Critical,
                     "secrets",
-                    &format!("Environment variable {} contains hardcoded value", var),
+                    &format!("Environment variable {var} contains hardcoded value"),
                     &format!("{}={}", var, mask_sensitive(val)),
                     "Replace with ${ENV_VAR} environment variable reference",
                     true,
@@ -179,7 +195,7 @@ fn check_dangerous_command(
     ];
 
     for pattern in exact_patterns {
-        if lower.contains(pattern) {
+        if contains_word(&lower, pattern) {
             return Some(make_dangerous_finding(
                 server_name,
                 file_path,
@@ -263,21 +279,27 @@ fn check_overly_permissive(
 
 fn check_no_tls(server_name: &str, server: &ServerConfig, file_path: &str) -> Option<Finding> {
     if let Some(url) = server.has_url() {
-        if url.starts_with("http://") {
+        let lower = url.to_lowercase();
+        if (lower.starts_with("http://") || lower.starts_with("ws://")) && !is_localhost_url(&lower)
+        {
             return Some(make_finding(
                 "no-tls",
                 server_name,
                 file_path,
                 Severity::Medium,
                 "network",
-                "Server uses insecure HTTP connection",
-                &format!("url: {}", url),
+                "Server uses insecure connection",
+                &format!("url: {url}"),
                 "Change URL to https:// to enable TLS encryption",
                 false,
             ));
         }
     }
     None
+}
+
+fn is_localhost_url(url: &str) -> bool {
+    url.contains("://localhost") || url.contains("://127.0.0.1") || url.contains("://[::1]")
 }
 
 // ── SC-06 ─────────────────────────────────────────────────────────
@@ -287,7 +309,9 @@ fn check_no_authentication(
     server: &ServerConfig,
     file_path: &str,
 ) -> Option<Finding> {
-    let has_credential = server.get_credential().is_some();
+    let has_credential = server.get_credential().is_some_and(|c| {
+        !c.is_empty() && c != "${}" && !c.trim().is_empty()
+    });
     let has_auth_header = server.auth.is_some() || server.authorization.is_some();
     let has_env_token = server
         .env
@@ -331,7 +355,13 @@ fn check_bind_public_interface(
 ) -> Option<Finding> {
     let host = server.host.as_deref().or(server.bind.as_deref());
     if let Some(h) = host {
-        if h == "0.0.0.0" || h == "::" {
+        let h = h.trim();
+        let addr = if h.starts_with('[') {
+            h.to_string()
+        } else {
+            h.split(':').next().unwrap_or(h).to_string()
+        };
+        if addr == "0.0.0.0" || addr == "::" {
             return Some(make_finding(
                 "bind-public-interface",
                 server_name,
@@ -339,7 +369,7 @@ fn check_bind_public_interface(
                 Severity::High,
                 "network",
                 "Server bound to all network interfaces (0.0.0.0)",
-                &format!("host: {}", h),
+                &format!("host: {h}"),
                 "Restrict binding to 127.0.0.1 or specific internal IP",
                 false,
             ));
@@ -385,7 +415,7 @@ fn mask_sensitive(value: &str) -> String {
     }
     let prefix = &value[..4];
     let suffix = &value[value.len() - 4..];
-    format!("{}...{}", prefix, suffix)
+    format!("{prefix}...{suffix}")
 }
 
 pub fn safe_truncate(text: &str, max_len: usize) -> String {
