@@ -53,7 +53,7 @@ Hermes rules map directly to the [OWASP MCP Top 10](https://owasp.org/www-projec
 
 ```bash
 # Install
-cargo install --locked hermes
+cargo install hermes-mcp --locked
 
 # Scan MCP configs
 hermes audit ~/my-mcp-configs/
