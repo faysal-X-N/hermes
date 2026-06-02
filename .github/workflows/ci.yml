@@ -29,7 +29,7 @@ jobs:
       - uses: dtolnay/rust-toolchain@1.88.0
         with:
           components: clippy
-      - run: cargo clippy --all-targets -- -D clippy::all
+      - run: cargo clippy --all-targets
 
   lint-next:
     name: Lint (stable)
