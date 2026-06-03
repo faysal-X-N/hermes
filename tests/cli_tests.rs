@@ -77,6 +77,15 @@ fn test_policy_generates_file() {
 
 #[test]
 fn test_audit_no_issues_on_secure_config() {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            "tests/fixtures/configs/secure-mcp.json",
+            std::fs::Permissions::from_mode(0o600),
+        );
+    }
+
     hermes()
         .args(["audit", "tests/fixtures/configs/secure-mcp.json"])
         .assert()
@@ -119,6 +128,15 @@ fn test_verify_works() {
         .args(["audit", "--init-key", "--audit-key", key_file])
         .assert()
         .success();
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let _ = std::fs::set_permissions(
+            "tests/fixtures/configs/secure-mcp.json",
+            std::fs::Permissions::from_mode(0o600),
+        );
+    }
 
     hermes()
         .args([
