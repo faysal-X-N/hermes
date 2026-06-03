@@ -7,7 +7,7 @@
 MCP 运行时安全扫描器 &amp; 合规审计工具
 
 [![CI](https://github.com/faysal-X-N/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/faysal-X-N/hermes/actions)
-[![Crates.io](https://img.shields.io/crates/v/hermes.svg)](https://crates.io/crates/hermes)
+[![Crates.io](https://img.shields.io/crates/v/hermes-mcp.svg)](https://crates.io/crates/hermes-mcp)
 [![Rust](https://img.shields.io/badge/Rust-1.88.0+-blue?logo=rust)](https://blog.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-171%20passed-brightgreen)]()
 [![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()

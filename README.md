@@ -3,8 +3,8 @@
 MCP Runtime Security Scanner &amp; Compliance Auditor
 
 [![CI](https://github.com/faysal-X-N/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/faysal-X-N/hermes/actions)
-[![Crates.io](https://img.shields.io/crates/v/hermes.svg)](https://crates.io/crates/hermes)
-[![License](https://img.shields.io/crates/l/hermes.svg)](LICENSE)
+[![Crates.io](https://img.shields.io/crates/v/hermes-mcp.svg)](https://crates.io/crates/hermes-mcp)
+[![License](https://img.shields.io/crates/l/hermes-mcp.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.88.0+-blue?logo=rust)](https://blog.rust-lang.org/)
 [![Tests](https://img.shields.io/badge/tests-171%20passed-brightgreen)]()
 [![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
