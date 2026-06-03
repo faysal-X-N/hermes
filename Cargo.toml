@@ -1,6 +1,6 @@
 [package]
 name = "hermes-mcp"
-version = "0.1.0"
+version = "0.3.1"
 edition = "2021"
 license = "Apache-2.0"
 description = "MCP Runtime Security Scanner & Compliance Auditor — static config audit, runtime TLS/auth probe, and policy enforcement for MCP servers"

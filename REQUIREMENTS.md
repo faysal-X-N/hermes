@@ -1,7 +1,7 @@
 # Hermes — 需求规格说明书
 
 > MCP 运行时安全探测与合规审计工具  
-> 版本: 0.1.0 | 日期: 2026-06-02
+> 版本: 0.3.1 | 日期: 2026-06-03
 
 ---
 
@@ -24,9 +24,9 @@
 | CLI-01 | `hermes audit <path>` | P0 | 配置文件路径/目录 | 安全报告(终端) | 0=通过, 1=错误, 2=发现问题 |
 | CLI-02 | `hermes probe <url>` | P0 | MCP Server URL | 探测报告(终端) | 同上 |
 | CLI-03 | `hermes fuzz <url>` | P1 | MCP Server URL | Fuzz 报告(终端) | 同上 |
-| CLI-04 | `hermes report <path>` | P1 | 扫描结果 JSON 文件(FR-07 格式) | 格式化报告(终端/HTML)。SARIF 格式在 P2 支持 | 同上 |
-| CLI-05 | `hermes policy init` | P2 | — | 生成默认策略文件 | 0 |
-| CLI-06 | `hermes policy check` | P2 | 策略文件 + 配置 | 策略合规报告 | 同上 |
+| CLI-04 | `hermes report <path>` | P1 | 扫描结果 JSON 文件 | 格式化报告(终端/HTML/SARIF) | 同上 |
+| CLI-05 | `hermes policy` | P2 | — | 生成默认策略文件 | 0 |
+| CLI-06 | `hermes policy check` | P2 | 策略文件 + 配置 | 策略合规报告 | （延后） |
 | CLI-07 | `hermes verify <audit-file>` | P1 | 审计文件 | 验证结果 | 同上 |
 
 **通用标志:**
@@ -34,17 +34,18 @@
 | 标志 | 优先级 | 适用命令 | 说明 |
 |------|:--:|------|------|
 | `--format json` | P0 | all | JSON 输出。`--format` 不可重复指定，重复时最后一次生效 |
-| `--format html` | P1 | audit,probe | HTML 报告 |
+| `--format html` | P1 | audit,probe,report | HTML 报告 |
 | `--format sarif` | P2 | audit,probe | SARIF(GitHub Code Scanning) |
+| `--format html-management` | P2 | audit | 管理级 HTML 报告(图表+合规) |
 | `--output <file>` | P0 | all | 写入文件 |
 | `--policy <file>` | P1 | audit,probe,fuzz | 按外部策略文件检查。与 `--preset` 互斥，同时指定时报错 |
-| `--preset <name>` | P1 | audit,probe,fuzz | 内置策略预设，编译于二进制内。与 `--policy` 互斥。可选: `dengbao`(P1)、`basic`/`strict`/`enterprise`(P2) |
+| `--preset <name>` | P1 | audit,probe,fuzz | 内置策略预设，编译于二进制内。与 `--policy` 互斥。可选: `dengbao`、`basic`、`strict`、`enterprise` |
 | `--min-severity <level>` | P1 | audit,probe,fuzz | 最低显示级别(info/low/medium/high/critical) |
 | `--fix` | P2 | audit | 自动修复安全风险。仅修复 `auto_fixable: true` 的项（替换明文 key 为 `${VAR}` 引用、设置默认 timeout）。修复前自动备份原文件为 `<file>.hermes.bak`。权限变更（如通配符缩小）**不自动修**，仅给建议 |
 | `--verbose` | P1 | all | 详细输出。日志/进度走 `stderr`，结果始终走 `stdout`。与 `--format json` 同时使用时，JSON 输出不受污染（verbose 信息仅在 stderr） |
 | `--no-color` | P1 | all | 禁用颜色 |
 | `--timeout <seconds>` | P1 | probe,fuzz | 探测超时(默认30s) |
-| `--audit-key <file>` | P1 | audit,probe | HMAC 审计链密钥文件路径(16字节以上)，也支持环境变量 `HERMES_AUDIT_KEY`。verify 时需同一密钥 |
+| `--audit-key <file>` | P1 | audit,probe,fuzz,verify | HMAC 审计链密钥文件路径(16字节以上)，也支持环境变量 `HERMES_AUDIT_KEY`。verify 时需同一密钥 |
 | `--init-key` | P1 | audit | 交互式创建 HMAC 审计链密钥文件，引导用户完成首次设置 |
 
 ---
@@ -81,6 +82,7 @@
 | SC-13 | `missing-description` | P2 | **info** | 检测 Server 是否缺少 `description` 字段 | 最佳实践 |
 | SC-14 | `unsafe-filesystem` | P1 | **high** | 检测文件系统 Server 是否允许访问根目录 `/` 或用户目录 `~` | MCP 安全白皮书 §Local Server Compromise |
 | SC-15 | `supply-chain-risk` | P2 | **medium** | 检测是否从非 npm/PyPI 官方源安装 | agentshield 验证 |
+| SC-16 | `world-readable-config` | P2 | **medium** | 检测 MCP 配置文件权限是否过于宽松（world/group 可读） | 最佳实践 |
 
 ---
 
@@ -133,52 +135,35 @@
 
 | ID | 功能 | 优先级 | 说明 |
 |:--|------|:--:|------|
-| PL-01 | YAML 策略文件解析 | P1 | 读取策略文件，结构如下 |
+| PL-01 | JSON 策略文件解析 | P1 | 读取策略文件，结构如下 |
 | PL-02 | 严重级别阈值 | P1 | `min_severity: high` — 低于此级别的忽略 |
 | PL-03 | 规则启用/禁用 | P1 | 按规则 ID 开关 |
 | PL-04 | 白名单 | P2 | 排除特定 tool/路径不检测 |
 | PL-05 | 内置策略模板 | P2 | `basic` / `strict` / `enterprise` 预设。`dengbao` 已提前至 P1 作为内置预设(SM-05) |
 | PL-06 | 基线对比 | P2 | 本次扫描 vs 上次基线，检测新增/修复/未变 |
 
-**策略文件格式:**
+**策略文件格式 (JSON):**
 
-```yaml
-# .hermes-policy.yaml
-version: 1
-name: "企业 MCP 安全策略"
-
-# 全局阈值
-min_severity: high
-max_warnings: 10
-
-# 规则开关
-rules:
-  hardcoded-api-key:
-    enabled: true
-    severity: critical
-  no-tls:
-    enabled: true
-    severity: high
-  auto-approve:
-    enabled: true
-    severity: high
-  no-timeout:
-    enabled: false  # 关闭此规则
-
-# 白名单
-exceptions:
-  - rule: dangerous-tools
-    tool: "write_file"
-    reason: "业务需要，已做二次确认"
-    expires: "2026-12-31"
-  - rule: path-traversal
-    path: "/tmp/safe-dir/*"
-    reason: "隔离目录，无敏感数据"
-
-# 合规要求
-compliance:
-  dengbao_level: 2  # 等保二级
-  gdpr_scope: false
+```json
+{
+  "version": 1,
+  "name": "企业 MCP 安全策略",
+  "min_severity": "high",
+  "rules": {
+    "hardcoded-api-key": { "enabled": true, "severity": "critical" },
+    "no-tls": { "enabled": true, "severity": "high" },
+    "auto-approve": { "enabled": true, "severity": "high" },
+    "no-timeout": { "enabled": false }
+  },
+  "exceptions": [
+    {
+      "rule": "dangerous-tools",
+      "tool": "write_file",
+      "reason": "业务需要，已做二次确认",
+      "expires": "2026-12-31"
+    }
+  ]
+}
 ```
 
 ---
@@ -234,7 +219,7 @@ compliance:
 ```json
 {
   "tool": "hermes",
-  "version": "0.1.0",
+    "version": "0.3.1",
   "command": "audit",
   "timestamp": "2026-06-02T12:00:00Z",
   "target": "./mcp-configs/",
@@ -323,8 +308,7 @@ compliance:
 ---
 
 ### FR-10 依赖管理
-| `rustls` 显式使用 `ring` | `aws-lc-rs`(默认)需要 C 编译器。用 `ring` 纯 Rust 实现，与 FRP-X 一致 |
-| `reqwest 0.12` | 0.13 已发布但可能有 breaking changes。P0 阶段用 0.12 |
+| `rustls` 显式使用 `ring` | `aws-lc-rs`(默认)需要 C 编译器。用 `ring` 纯 Rust 实现 |
 
 ---
 
@@ -364,8 +348,8 @@ compliance:
 |:--:|------|:--:|------|:--:|
 | **P0** | v0.1.0 | 2026-06-02 | CLI + 静态扫描(SC01-08) + 运行时基本探测(PR01-07) + JSON/终端输出 + CI(3平台+MSRV+双lint) | ✅ 已完成 |
 | **P1** | v0.2.0 | 2026-06-02 | Fuzz 引擎(FZ-01/02/03/04/08) + 策略引擎(PL-01~03) + 审计链(AU-01~04) + 等保预设(SM-05) + SC-11/12/14 + PR-08/10/13 + HTML报告 + `hermes fuzz`/`verify`/`report` 命令 | ✅ 已完成 |
-| **P2** | v0.3.0 | 2026-06-02 | 供应链(SC-10/15) + SARIF + --fix + GitHub Action + 全部P2规则(SC-09/13/PR-09~16/FZ-05~07) + 白名单(PL-04) + 预设(PL-05) + 基线(PL-06) + 管理HTML(RP-05) + 等保报告(RP-07) + policy命令 | ✅ 已完成 |
-| **P3** | v1.0.0 | — | wiremock集成测试 + cargo-dist预编译二进制 + shell补全 + policy check(CLI-06) + crates.io发布 | — |
+| **P2** | v0.3.0 | 2026-06-02 | SARIF + --fix + GitHub Action + 全部P2规则(SC-09/10/13/15/PR-09~16/FZ-05~07) + 白名单(PL-04) + 预设(PL-05) + 管理HTML(RP-05) + policy命令 | ✅ 已完成 |
+| **P3** | v0.3.1 | — | wiremock集成测试 + cargo-dist预编译二进制 + 代码清洁 | — |
 | **v1.0** | v1.0.0 | +2 周 | 文档完善 + 发布到 crates.io | — |
 
 ### P0 已交付清单
@@ -394,7 +378,7 @@ compliance:
 | 序列化 | serde + serde_json | Rust 社区标准 |
 | 日志 | tracing + tracing-subscriber | 结构化日志，verbose → stderr |
 | 错误处理 | color-eyre | 彩色错误输出 |
-| 终端输出 | console + indicatif | 彩色报告 + 进度条 |
+| 终端输出 | console + tracing | 彩色报告 |
 | 时间 | chrono | 证书过期检测 |
 | 审计链 | HMAC-SHA256 (复用 FRP-X) | 金融级审计 |
 
@@ -413,7 +397,7 @@ compliance:
 
 ## 依赖清单
 
-> P0 实际依赖（18 个直接依赖，6 个传递依赖）
+> 实际依赖（21 个直接依赖）
 
 | Crate | 用途 | 许可证 |
 |------|------|------|
@@ -424,31 +408,24 @@ compliance:
 | rustls 0.23 | TLS 检测(直连) | MIT/Apache2 |
 | tokio-rustls 0.26 | TLS 异步连接器 | MIT/Apache2 |
 | rustls-native-certs 0.8 | 系统根证书 | MIT/Apache2 |
-| rustls-pemfile 2 | PEM 证书解析 | MIT/Apache2 |
 | x509-parser 0.16 | X509 证书解析 | MIT/Apache2 |
 | ring 0.17 | 加密后端(显式声明) | ISC |
 | tracing/tracing-subscriber | 日志 | MIT |
 | chrono | 时间戳/证书过期 | MIT/Apache2 |
-| uuid | P2 Session ID 检测 | MIT/Apache2 |
+| uuid | Session ID 检测 | MIT/Apache2 |
 | sha2/hmac/hex | 审计链哈希 | MIT/Apache2 |
 | color-eyre | 错误报告 | MIT/Apache2 |
-| indicatif | 进度条 | MIT |
 | console | 终端样式 | MIT |
+| serde_yaml_ng 0.10 | MCP 配置文件 YAML 解析 | MIT |
+| glob 0.3.3 | 配置文件 glob 路径匹配 | MIT/Apache2 |
 
-**P1 计划加入:**
-
-| Crate | 用途 |
-|------|------|
-| serde_yaml_ng 0.10 | 策略文件解析 |
-
-**P2 计划加入 (feature `sm-crypto`):**
 
 ### 维护风险提示
 
 | Crate | 风险 | 缓解 |
 |------|------|------|
-| `serde_yaml_ng 0.10` | 自 2024-05 零更新，仓库无活动 | P0 阶段用 JSON 策略格式（`.hermes-policy.json`），P1 评估替代品 `serde_yml` 或自实现 YAML 解析 |
-| `reqwest 0.12` | 0.13 已发布（2026-04），0.12 可能停止维护 | P0 用 0.12，P2 升级到 0.13 |
+| `serde_yaml_ng 0.10` | 自 2024-05 零更新，仓库无活动。仅用于 MCP 配置文件 YAML 回退解析 | 策略文件使用 JSON 格式（`.hermes-policy.json`）。关注替代品 `serde_yml` |
+| `reqwest 0.12` | 0.13 已发布（2026-04），0.12 可能停止维护 | 当前使用 0.12，后续评估升级 |
 
 ---
 
@@ -471,17 +448,16 @@ compliance:
 
 ## 已验证的依赖兼容性
 
-所有 18 个直接依赖 + 6 个传递依赖经 crates.io 和 RUSTSEC 验证：
+所有依赖经 crates.io 和 RUSTSEC 验证：
 
 - ✅ 零 RUSTSEC 安全公告
-- ✅ 全部 MIT / Apache 2.0 双许可 — 商业友好
+- ✅ 全部 MIT / Apache 2.0（除 `ring` 为 ISC 许可）
 - ✅ 全部与 tokio 1.38 运行时兼容
-- ✅ `rustls 0.23` + `ring` + FRP-X 一致，未来 workspace 合并无冲突
+- ✅ `rustls 0.23` + `ring` 与 FRP-X 一致，未来 workspace 合并无冲突
 - ✅ `reqwest 0.12` + `rustls 0.23` 兼容 (hyper-rustls ^0.27)
 - ✅ 无 Windows/Linux/macOS 特定限制
-- ✅ SM2/SM3/SM4 由 RustCrypto 官方维护，Apache 2.0 OR MIT
 
 ---
 
-*文档版本: 2.0 | 最后更新: 2026-06-02*
-*变更: P0 里程碑已完成交付。CI 架构文档化(双 lint job + 3 平台 + MSRV)。依赖清单同步至 Cargo.toml。MSRV 更新为 1.88.0。新增 22 个运行时依赖(TLS 检测链)。已知限制更新至 P0 已修复项。*
+*文档版本: 3.0 | 最后更新: 2026-06-03*
+*变更: P0/P1/P2 里程碑已完成交付。依赖清单同步至 Cargo.toml。MSRV 1.88.0。策略格式确认 JSON。移除未实现功能引用。*

@@ -6,7 +6,7 @@ MCP Runtime Security Scanner &amp; Compliance Auditor
 [![Crates.io](https://img.shields.io/crates/v/hermes.svg)](https://crates.io/crates/hermes)
 [![License](https://img.shields.io/crates/l/hermes.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.88.0+-blue?logo=rust)](https://blog.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-164%20passed-brightgreen)]()
+[![Tests](https://img.shields.io/badge/tests-171%20passed-brightgreen)]()
 [![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
 
 > **Hermes** is a Rust-powered CLI tool for scanning, probing, and fuzzing MCP (Model Context Protocol) server configurations. It combines static config audit, runtime TLS/auth/SSRF/session probing, fuzz testing, tamper-proof audit chains, and China compliance (等保 2.0) — all in a single binary.
@@ -43,7 +43,7 @@ Hermes rules map directly to the [OWASP MCP Top 10](https://owasp.org/www-projec
 | MCP05 — Command Injection | SC-03/FZ-05/06 |
 | MCP06 — Prompt Injection | FZ-07 |
 | MCP07 — Insufficient AuthN/AuthZ | SC-06/PR-03/04/14/15 |
-| MCP08 — Lack of Audit | AU-01~04 |
+| MCP08 — Lack of Audit | SC-02/11/16 (audit trail via chain module) |
 | MCP09 — Shadow Servers | SC-13 |
 | MCP10 — Context Over-Sharing | PR-10/11/12 |
 
@@ -96,7 +96,7 @@ hermes verify .hermes/chain-audit-*.json --audit-key .hermes/audit.key
 ### GitHub Actions
 
 ```yaml
-- uses: faysal-X-N/hermes@v0.1
+- uses: faysal-X-N/hermes@v0.3
   with:
     path: "."
     preset: "basic"
@@ -134,21 +134,23 @@ hermes audit . --preset dengbao
 
 | Flag | Description |
 |------|-------------|
-| `--format json` | JSON output |
-| `--format html` | Technical HTML report |
-| `--format html-management` | Management HTML (charts + compliance) |
-| `--format sarif` | SARIF v2.1.0 (GitHub Code Scanning) |
-| `--output <file>` | Write to file |
-| `--verbose` | Verbose to stderr |
-| `--no-color` | Disable colors |
-| `--timeout <s>` | Timeout in seconds (default: 30) |
-| `--policy <file>` | Load JSON policy file |
-| `--preset <name>` | Preset: basic / strict / enterprise / dengbao |
-| `--min-severity <level>` | Min level: info / low / medium / high / critical |
-| `--audit-key <file>` | HMAC audit chain key |
-| `--init-key` | Generate audit chain key |
-| `--fix` | Auto-fix in-place |
-| `--fix --dry-run` | Preview fixes |
+| `--format json` | JSON output (audit/probe/fuzz/report) |
+| `--format html` | Technical HTML report (audit/probe/report) |
+| `--format html-management` | Management HTML — charts + compliance (audit) |
+| `--format sarif` | SARIF v2.1.0 — GitHub Code Scanning (audit/probe) |
+| `--output <file>` | Write to file (all commands) |
+| `--verbose` | Verbose output to stderr (all commands) |
+| `--no-color` | Disable colors (all commands) |
+| `--dry-run` | Preview fixes without writing (requires --fix, audit only) |
+| `--timeout <s>` | Timeout in seconds — probe/fuzz only (default: 30) |
+| `--policy <file>` | Load JSON policy file — audit/probe/fuzz only |
+| `--preset <name>` | Preset: basic / strict / enterprise / dengbao — audit/probe/fuzz only |
+| `--min-severity <level>` | Min level: info / low / medium / high / critical — audit/probe/fuzz only |
+| `--audit-key <file>` | HMAC audit chain key — audit/probe/fuzz/verify only. Also via `HERMES_AUDIT_KEY` env var |
+| `--init-key` | Generate audit chain key — audit only |
+| `--template <name>` | Policy preset name — policy command only |
+| `--fix` | Auto-fix in-place — audit only |
+| `--fix --dry-run` | Preview fixes without writing — audit only |
 
 ### Exit Codes
 
@@ -229,7 +231,7 @@ hermes audit . --preset dengbao
 
 ### Scoring
 
-Score = max(0, 100 − 25×Critical − 10×High − 3×Medium)
+Score = max(0, 100 − 25×Critical − 10×High − 3×Medium − Low)
 
 | Grade | Range |
 |:--:|------|
@@ -308,9 +310,11 @@ Hermes is **not** a penetration testing tool:
 - **SSRF:** Detects if server *accepts* internal URLs; does not verify outbound request.
 - **No behavioral AI analysis:** Prompt injection is pattern-based.
 - **No real-time monitoring:** Manual scan, not a continuous service.
-- **Windows:** TLS depends on OS certificate store.
+- **Windows:** TLS depends on OS certificate store. SC-16 (file permissions) applies on Unix only.
 
 ---
+
+*v0.3.1 · 2026-06-03*
 
 ## Supported Formats
 
