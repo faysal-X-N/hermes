@@ -1,19 +1,32 @@
 use super::common::discover_tools;
 use super::types::{ProbeContext, ProbeFinding};
 use crate::audit::types::Severity;
-use reqwest::Client;
 use std::time::Duration;
 
 pub async fn probe_ssrf_redirect(ctx: &ProbeContext) -> Vec<ProbeFinding> {
     let mut findings = Vec::new();
     let base = ctx.target_url.trim_end_matches('/');
 
-    let client = Client::builder()
+    let client = match reqwest::Client::builder()
         .danger_accept_invalid_certs(true)
         .timeout(Duration::from_secs(ctx.timeout_secs))
         .redirect(reqwest::redirect::Policy::none())
         .build()
-        .unwrap();
+    {
+        Ok(c) => c,
+        Err(e) => {
+            findings.push(ProbeFinding {
+                rule_id: "internal-error".into(),
+                severity: Severity::Critical,
+                category: "internal".into(),
+                title: "Failed to create HTTP client".into(),
+                target: ctx.target_url.clone(),
+                evidence: format!("{e}"),
+                recommendation: "Check system network configuration".into(),
+            });
+            return findings;
+        }
+    };
 
     let redirect_urls = vec![
         "https://httpbin.org/redirect-to?url=http://127.0.0.1",

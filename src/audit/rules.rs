@@ -80,10 +80,11 @@ fn check_hardcoded_api_key(
 
     if let Some(ref env) = server.env {
         for (var, val) in env {
-            let looks_like_key = var.to_lowercase().contains("key")
-                || var.to_lowercase().contains("token")
-                || var.to_lowercase().contains("secret")
-                || var.to_lowercase().contains("api");
+            let lower_var = var.to_lowercase();
+            let looks_like_key = contains_word(&lower_var, "key")
+                || lower_var.contains("token")
+                || lower_var.contains("secret")
+                || contains_word(&lower_var, "api");
             if looks_like_key && !ServerConfig::is_env_var_ref(val) && val.len() > 3 {
                 return Some(make_finding(
                     "hardcoded-api-key",
@@ -168,7 +169,7 @@ fn check_dangerous_command(
     let has_curl = lower.contains("curl");
     let has_wget = lower.contains("wget");
     let has_pipe = lower.contains("|");
-    let has_shell = lower.contains("sh") || lower.contains("bash");
+    let has_shell = contains_word(&lower, "sh") || lower.contains("bash");
 
     if (has_curl || has_wget) && has_pipe && has_shell {
         return Some(make_dangerous_finding(
@@ -283,7 +284,9 @@ fn check_no_authentication(
                     || lower.contains("api_key")
                     || lower.contains("apikey")
                     || lower.contains("secret")
-                    || lower.contains("auth")
+                    || lower.starts_with("auth")
+                    || lower.contains("_auth")
+                    || lower.contains("auth_")
             })
         })
         .unwrap_or(false);
@@ -474,7 +477,12 @@ fn check_sensitive_file_args(
     for arg in &args {
         let lower = arg.to_lowercase();
         for pattern in &sensitive_patterns {
-            if lower.contains(pattern) {
+            let matched = if *pattern == ".key" {
+                lower.ends_with(".key") || lower.contains("/.key") || lower.contains("\\.key")
+            } else {
+                lower.contains(pattern)
+            };
+            if matched {
                 return Some(make_finding(
                     "sensitive-file-args",
                     server_name,
@@ -493,7 +501,12 @@ fn check_sensitive_file_args(
     if let Some(cmd) = server.get_command() {
         let lower = cmd.to_lowercase();
         for pattern in &sensitive_patterns {
-            if lower.contains(pattern) {
+            let matched = if *pattern == ".key" {
+                lower.ends_with(".key") || lower.contains("/.key") || lower.contains("\\.key")
+            } else {
+                lower.contains(pattern)
+            };
+            if matched {
                 return Some(make_finding(
                     "sensitive-file-args",
                     server_name,
@@ -548,10 +561,7 @@ fn check_unsafe_filesystem(
                 .get_command()
                 .map(|c| {
                     let c = c.to_lowercase();
-                    c.contains("filesystem")
-                        || c.contains("fs")
-                        || c.contains("npx")
-                        || c.contains("uvx")
+                    c.contains("filesystem") || c.contains("npx") || c.contains("uvx")
                 })
                 .unwrap_or(true);
             if is_fs_server {
@@ -612,8 +622,8 @@ fn check_unpinned_package(
         .map(|a| a.iter().map(|s| s.trim().to_string()).collect())
         .unwrap_or_default();
 
-    let is_runtime_installer = cmd.contains("npx")
-        || cmd.contains("uvx")
+    let is_runtime_installer = contains_word(&cmd, "npx")
+        || contains_word(&cmd, "uvx")
         || (cmd.contains("pnpm") && args.iter().any(|a| a == "dlx"))
         || (cmd.contains("npm") && args.iter().any(|a| a == "exec"));
 
@@ -639,7 +649,13 @@ fn check_unpinned_package(
             continue;
         }
         has_package = true;
-        has_version = arg.contains('@') || arg.contains('#');
+        let after_at = arg.split('@').nth(1).unwrap_or("");
+        let tag = after_at.split(['-', '.', '#', ' ']).next().unwrap_or("");
+        let is_floating_tag = matches!(
+            tag,
+            "latest" | "next" | "nightly" | "canary" | "dev" | "stable"
+        );
+        has_version = (arg.contains('@') || arg.contains('#')) && !is_floating_tag;
         break;
     }
 
@@ -675,27 +691,43 @@ fn check_supply_chain_risk(
     for pair in all_args.windows(2) {
         if pair[0] == "--registry" || pair[0] == "-r" {
             let registry = pair[1];
-            let lower = registry.to_lowercase();
-            let is_official = lower.contains("registry.npmjs.org")
-                || lower.contains("registry.yarnpkg.com")
-                || lower.contains("pypi.org")
-                || lower.contains("crates.io");
-            if !is_official {
-                return Some(Finding::builder()
-                    .rule_id("supply-chain-risk")
-                    .server_name(server_name)
-                    .file(file_path)
-                    .severity(Severity::Medium)
-                    .category("secrets")
-                    .title("Non-official package registry detected — supply chain risk")
-                    .evidence(&format!("--registry {registry}"))
-                    .recommendation("Use official registries (registry.npmjs.org / pypi.org) or verify the source")
-                    .build());
-            }
+            return check_registry(registry, server_name, file_path);
+        }
+    }
+
+    for arg in &all_args {
+        if let Some(registry) = arg.strip_prefix("--registry=") {
+            return check_registry(registry, server_name, file_path);
         }
     }
 
     None
+}
+
+fn check_registry(registry: &str, server_name: &str, file_path: &str) -> Option<Finding> {
+    let lower = registry.to_lowercase();
+    let is_official = lower.contains("registry.npmjs.org")
+        || lower.contains("registry.yarnpkg.com")
+        || lower.contains("pypi.org")
+        || lower.contains("crates.io");
+    if !is_official {
+        Some(
+            Finding::builder()
+                .rule_id("supply-chain-risk")
+                .server_name(server_name)
+                .file(file_path)
+                .severity(Severity::Medium)
+                .category("secrets")
+                .title("Non-official package registry detected — supply chain risk")
+                .evidence(&format!("--registry {registry}"))
+                .recommendation(
+                    "Use official registries (registry.npmjs.org / pypi.org) or verify the source",
+                )
+                .build(),
+        )
+    } else {
+        None
+    }
 }
 
 // ── SC-09 ─────────────────────────────────────────────────────────
@@ -944,6 +976,28 @@ mod tests {
     }
 
     #[test]
+    fn test_sc01_capacity_not_key() {
+        let mut env = HashMap::new();
+        env.insert("capacity".into(), "1000".into());
+        let s = ServerConfig {
+            env: Some(env),
+            ..make_server()
+        };
+        assert!(find("hardcoded-api-key", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc01_monkey_not_key() {
+        let mut env = HashMap::new();
+        env.insert("monkey_config".into(), "value".into());
+        let s = ServerConfig {
+            env: Some(env),
+            ..make_server()
+        };
+        assert!(find("hardcoded-api-key", &s).is_none());
+    }
+
+    #[test]
     fn test_sc01_secret_field() {
         let s = ServerConfig {
             secret: Some("supersecretkey123".into()),
@@ -985,6 +1039,16 @@ mod tests {
         };
         let f = find("dangerous-command", &s);
         assert!(f.is_some());
+    }
+
+    #[test]
+    fn test_sc03_push_in_args_not_sh() {
+        let s = ServerConfig {
+            command: Some("git".into()),
+            args: Some(vec!["push".into(), "origin".into(), "main".into()]),
+            ..make_server()
+        };
+        assert!(find("dangerous-command", &s).is_none());
     }
 
     #[test]
@@ -1205,6 +1269,26 @@ mod tests {
     }
 
     #[test]
+    fn test_sc10_floating_tag_latest() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec!["-y".into(), "package@latest".into()]),
+            ..make_server()
+        };
+        assert!(find("unpinned-package", &s).is_some());
+    }
+
+    #[test]
+    fn test_sc10_floating_tag_next() {
+        let s = ServerConfig {
+            command: Some("npx".into()),
+            args: Some(vec!["-y".into(), "package@next".into()]),
+            ..make_server()
+        };
+        assert!(find("unpinned-package", &s).is_some());
+    }
+
+    #[test]
     fn test_sc10_not_runtime_installer() {
         let s = ServerConfig {
             command: Some("node".into()),
@@ -1290,6 +1374,33 @@ mod tests {
             ..make_server()
         };
         assert!(find("missing-description", &s).is_none());
+    }
+
+    #[test]
+    fn test_sc15_equals_format_detected() {
+        let s = ServerConfig {
+            command: Some("npm".into()),
+            args: Some(vec![
+                "install".into(),
+                "--registry=https://evil-registry.com".into(),
+            ]),
+            ..make_server()
+        };
+        let f = find("supply-chain-risk", &s).unwrap();
+        assert!(f.evidence.contains("evil-registry"));
+    }
+
+    #[test]
+    fn test_sc15_equals_format_official_is_safe() {
+        let s = ServerConfig {
+            command: Some("npm".into()),
+            args: Some(vec![
+                "install".into(),
+                "--registry=https://registry.npmjs.org".into(),
+            ]),
+            ..make_server()
+        };
+        assert!(find("supply-chain-risk", &s).is_none());
     }
 
     #[test]

@@ -10,7 +10,7 @@ use std::fs;
 use std::process;
 use std::time::Instant;
 
-const P0_RULES: &[&str] = &[
+const AUDIT_RULES: &[&str] = &[
     "hardcoded-api-key",
     "hardcoded-password",
     "dangerous-command",
@@ -26,9 +26,10 @@ const P0_RULES: &[&str] = &[
     "supply-chain-risk",
     "no-timeout",
     "missing-description",
+    "world-readable-config",
 ];
 
-const P0_RULES_RICH: &[(&str, &str, &str)] = &[
+const AUDIT_RULES_RICH: &[(&str, &str, &str)] = &[
     ("hardcoded-api-key", "Hardcoded API key detected", "Replace with ${ENV_VAR}"),
     ("hardcoded-password", "Hardcoded password detected", "Replace with ${ENV_VAR}"),
     ("dangerous-command", "Dangerous shell command", "Remove pipe-to-shell patterns"),
@@ -40,6 +41,31 @@ const P0_RULES_RICH: &[(&str, &str, &str)] = &[
     ("env-secret-leak", "Environment variable leaks secret", "Use ${VAR} reference"),
     ("sensitive-file-args", "Sensitive file in startup args", "Use environment variables"),
     ("unsafe-filesystem", "Filesystem root directory access", "Restrict to specific directories"),
+    ("unpinned-package", "Package version not pinned", "Pin to a specific version (e.g. @1.2.3)"),
+    ("supply-chain-risk", "Non-official package registry", "Use official registries only"),
+    ("no-timeout", "No timeout configured", "Add timeout to prevent hanging connections"),
+    ("missing-description", "Missing server description", "Add description field to document purpose"),
+    ("world-readable-config", "Config file has wide permissions", "Restrict to owner-only: chmod 0600"),
+];
+
+const PROBE_RULES_RICH: &[(&str, &str, &str)] = &[
+    ("tls-missing", "TLS encryption not used", "Enable TLS/SSL for the MCP server"),
+    ("tls-verify", "TLS certificate issue", "Renew or fix TLS certificate"),
+    ("auth-required", "No authentication required", "Enable mandatory authentication"),
+    ("auth-weak", "Weak authentication detected", "Strengthen authentication mechanism"),
+    ("protocol-version", "Protocol version check", "Use latest MCP protocol version"),
+    ("tools-enumeration", "Tools exposed to clients", "Review tool exposure list"),
+    ("dangerous-tools", "Dangerous tools exposed", "Restrict or add confirmation to dangerous tools"),
+    ("ssrf-probe", "SSRF vulnerability", "Validate tool URLs against allowlists"),
+    ("ssrf-redirect", "SSRF via redirect", "Block redirect to internal addresses"),
+    ("session-predictability", "Predictable session IDs", "Use cryptographically random session IDs"),
+    ("session-replay", "Session replay accepted", "Invalidate sessions after use"),
+    ("session-fixation", "Session fixation risk", "Rotate session IDs after authentication"),
+    ("path-traversal", "Path traversal accepted", "Restrict file tool to allowed directories"),
+    ("confused-deputy", "Confused deputy risk", "Enable audience validation for OAuth"),
+    ("token-passthrough", "Token passthrough risk", "Configure token audience constraints"),
+    ("scope-minimization", "Overly broad scopes", "Use explicit scope names instead of wildcards"),
+    ("health-check", "Server connectivity check", "Verify server is running and accessible"),
 ];
 
 #[derive(ValueEnum, Clone, Debug)]
@@ -136,6 +162,9 @@ enum Commands {
         #[arg(long, default_value = "30", help = "Fuzz timeout in seconds")]
         timeout: u64,
 
+        #[arg(long, help = "Path to HMAC audit chain key file")]
+        audit_key: Option<String>,
+
         #[arg(long = "policy", help = "Path to JSON policy file")]
         policy_file: Option<String>,
 
@@ -179,6 +208,9 @@ fn main() {
     let exit_code = match cli.command {
         Commands::Audit { path, audit_key, init_key, policy_file, preset, min_severity, fix, dry_run } => {
             if init_key {
+                if path.is_some() {
+                    eprintln!("hermes: --init-key takes priority, PATH argument is ignored");
+                }
                 run_init_key(audit_key.as_deref())
             } else if let Some(p) = path {
                 let policy = resolve_policy(policy_file.as_deref(), preset.as_deref(), min_severity.as_deref());
@@ -194,22 +226,32 @@ fn main() {
         }
         Commands::Probe { url, timeout, audit_key, policy_file, preset, min_severity } => {
             let policy = resolve_policy(policy_file.as_deref(), preset.as_deref(), min_severity.as_deref());
-            let rt = tokio::runtime::Runtime::new().unwrap();
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio async runtime");
             rt.block_on(run_probe(&url, timeout, cli.format, cli.verbose, cli.output.as_deref(), audit_key.as_deref(), &policy))
         }
         Commands::Verify { audit_file, audit_key } => {
-            run_verify(&audit_file, audit_key.as_deref(), cli.verbose)
+            if cli.format.is_some() {
+                eprintln!("hermes: --format is not supported for the verify command");
+                1
+            } else {
+                run_verify(&audit_file, audit_key.as_deref(), cli.verbose)
+            }
         }
-        Commands::Fuzz { url, timeout, policy_file, preset, min_severity } => {
+        Commands::Policy { template } => {
+            if cli.format.is_some() {
+                eprintln!("hermes: --format is not supported for the policy command");
+                1
+            } else {
+                run_policy_init(template.as_deref())
+            }
+        }
+        Commands::Fuzz { url, timeout, audit_key, policy_file, preset, min_severity } => {
             let policy = resolve_policy(policy_file.as_deref(), preset.as_deref(), min_severity.as_deref());
-            let rt = tokio::runtime::Runtime::new().unwrap();
-            rt.block_on(run_fuzz(&url, timeout, cli.format, cli.verbose, cli.output.as_deref(), &policy))
+            let rt = tokio::runtime::Runtime::new().expect("Failed to create tokio async runtime");
+            rt.block_on(run_fuzz(&url, timeout, cli.format, cli.verbose, cli.output.as_deref(), audit_key.as_deref(), &policy))
         }
         Commands::Report { path } => {
             run_report(&path, cli.format, cli.verbose, cli.output.as_deref())
-        }
-        Commands::Policy { template } => {
-            run_policy_init(template.as_deref())
         }
     };
 
@@ -221,6 +263,7 @@ fn write_output(content: &str, output: Option<&str>) {
         if let Err(e) = fs::write(path, content) {
             eprintln!("hermes: failed to write output to {path}: {e}");
         }
+        return;
     }
     println!("{content}");
 }
@@ -278,7 +321,7 @@ fn run_audit(args: &AuditArgs) -> i32 {
 
     for config in &result.configs {
         for (server_name, server) in &config.servers {
-            for rule_id in P0_RULES {
+            for rule_id in AUDIT_RULES {
                 if let Some(finding) =
                     audit::rules::scan_server(rule_id, server_name, server, &config.file_path)
                 {
@@ -292,7 +335,7 @@ fn run_audit(args: &AuditArgs) -> i32 {
         policy::engine::apply_policy(&mut all_findings, p);
     }
 
-    let files_scanned = result.configs.len();
+    let files_scanned = result.configs.len() + result.skipped.len();
     let (score, grade) = compute_score(&all_findings);
     let duration_ms = start.elapsed().as_millis() as u64;
     let auto_fixable = all_findings.iter().filter(|f| f.auto_fixable).count();
@@ -317,7 +360,7 @@ fn run_audit(args: &AuditArgs) -> i32 {
         let html = report::html::build_html_audit(path, &all_findings, score, &grade);
         write_output(&html, output);
     } else if matches!(format, Some(Format::Sarif)) {
-        let sarif = report::sarif::build_sarif(path, &all_findings, P0_RULES_RICH);
+        let sarif = report::sarif::build_sarif(path, &all_findings, AUDIT_RULES_RICH);
         write_output(&sarif, output);
     } else if matches!(format, Some(Format::HtmlManagement)) {
         let html = report::html::build_html_management(path, &all_findings, score, &grade, files_scanned, duration_ms);
@@ -357,6 +400,7 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     let ctx = probe::types::ProbeContext::new(url, timeout);
 
     eprintln!("Probing {} ...", ctx.target_url);
+    eprintln!("WARNING: TLS certificate verification is disabled during probing (self-signed certs accepted).");
 
     if verbose {
         tracing::debug!("starting probe of {} with {}s timeout", ctx.target_url, ctx.timeout_secs);
@@ -410,7 +454,7 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     let info = all_findings.iter().filter(|f| f.severity == Severity::Info).count();
 
     let (score, grade) = score_from_counts(
-        critical as u32, high as u32, medium as u32,
+        critical as u32, high as u32, medium as u32, low as u32,
     );
 
     if verbose {
@@ -441,10 +485,13 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
             "tools_discovered": tools,
             "findings": all_findings,
         });
-        write_output(&serde_json::to_string_pretty(&json_report).unwrap(), output);
+        write_output(&serde_json::to_string_pretty(&json_report).unwrap_or_else(|e| format!("JSON serialization error: {e}")), output);
     } else if matches!(format, Some(Format::Html)) {
         let html = report::html::build_html_probe(&ctx.target_url, &all_findings);
         write_output(&html, output);
+    } else if matches!(format, Some(Format::Sarif)) {
+        let sarif = report::sarif::build_sarif_probe(&ctx.target_url, &all_findings, PROBE_RULES_RICH);
+        write_output(&sarif, output);
     } else {
         report::terminal::print_header(&ctx.target_url, "Probe");
         report::terminal::print_score(score, &grade);
@@ -468,7 +515,7 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
         let records: Vec<chain::types::AuditRecord> = all_findings.iter().enumerate().map(|(i, f)| {
             chain::types::AuditRecord {
                 index: i as u64 + 1,
-                timestamp: chrono::Utc::now().to_rfc3339(),
+                timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
                 rule_id: f.rule_id.clone(),
                 severity: format!("{:?}", f.severity).to_lowercase(),
                 target: url.to_string(),
@@ -485,7 +532,7 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
 
 fn apply_policy_to_probe(findings: &mut Vec<probe::types::ProbeFinding>, policy: &policy::types::PolicyConfig) {
     findings.retain(|f| {
-        if policy.is_exempted(&f.rule_id, Some(&f.target), &f.target) {
+        if policy.is_exempted(&f.rule_id, None, &f.target) {
             return false;
         }
         if !policy.is_rule_enabled(&f.rule_id) {
@@ -513,7 +560,7 @@ fn save_audit_chain(key_path: &str, command: &str, findings: &[audit::types::Fin
     let records: Vec<chain::types::AuditRecord> = findings.iter().enumerate().map(|(i, f)| {
         chain::types::AuditRecord {
             index: i as u64 + 1,
-            timestamp: chrono::Utc::now().to_rfc3339(),
+            timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
             rule_id: f.rule_id.clone(),
             severity: format!("{:?}", f.severity).to_lowercase(),
             target: f.file.clone(),
@@ -556,11 +603,24 @@ fn run_init_key(path: Option<&str>) -> i32 {
 
     let mut key = vec![0u8; 32];
     let rng = SystemRandom::new();
-    rng.fill(&mut key).unwrap();
+    if let Err(e) = rng.fill(&mut key) {
+        eprintln!("hermes: failed to generate random key: {e}");
+        return 1;
+    }
 
     if let Err(e) = fs::write(target, &key) {
         eprintln!("hermes: failed to write key file {target}: {e}");
         return 1;
+    }
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(target) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = fs::set_permissions(target, perms);
+        }
     }
 
     println!("Audit key created: {target} (32 bytes)");
@@ -611,7 +671,7 @@ fn resolve_policy(
     match (policy_file, preset) {
         (Some(_), Some(_)) => {
             eprintln!("hermes: --policy and --preset are mutually exclusive");
-            None
+            process::exit(1);
         }
         (Some(path), None) => match policy::parser::load_policy(path) {
             Ok(mut p) => {
@@ -667,15 +727,16 @@ fn presets_helper(preset: &policy::types::BuiltinPreset, sev: Option<String>) ->
     })
 }
 
-async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>, policy: &Option<policy::types::PolicyConfig>) -> i32 {
+async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool, output: Option<&str>, audit_key: Option<&str>, policy: &Option<policy::types::PolicyConfig>) -> i32 {
     eprintln!("Fuzzing {url} ...");
+    eprintln!("WARNING: TLS certificate verification is disabled during fuzzing.");
 
     if verbose {
         tracing::debug!("starting fuzz of {} with {}s timeout", url, timeout);
     }
 
     let ctx = fuzz::types::FuzzContext::new(url, timeout);
-    let test_ids: &[&str] = &["FZ-01", "FZ-02", "FZ-03", "FZ-04", "FZ-05", "FZ-06", "FZ-07"];
+    let test_ids: &[&str] = &["FZ-01", "FZ-02", "FZ-03", "FZ-04", "FZ-05", "FZ-06", "FZ-07", "FZ-08"];
     let results = fuzz::engine::run_fuzz(&ctx, test_ids).await;
 
     let results = if let Some(ref p) = policy {
@@ -715,7 +776,7 @@ async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool
             },
             "results": results,
         });
-        write_output(&serde_json::to_string_pretty(&json).unwrap(), output);
+        write_output(&serde_json::to_string_pretty(&json).unwrap_or_else(|e| format!("JSON serialization error: {e}")), output);
     } else {
         report::terminal::print_header(&ctx.target_url, "Fuzz");
         println!("  Tests executed: {}", results.len());
@@ -727,6 +788,26 @@ async fn run_fuzz(url: &str, timeout: u64, format: Option<Format>, verbose: bool
                 println!("        {}\n", r.evidence);
             }
         }
+    }
+
+    if let Some(key_path) = audit_key {
+        let records: Vec<chain::types::AuditRecord> = results.iter().enumerate().map(|(i, r)| {
+            chain::types::AuditRecord {
+                index: i as u64 + 1,
+                timestamp: chrono::Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Millis, true),
+                rule_id: r.test_id.clone(),
+                severity: format!("{:?}", r.severity).to_lowercase(),
+                target: url.to_string(),
+                finding: r.evidence.clone(),
+                recommendation: r.recommendation.clone(),
+                hmac: String::new(),
+            }
+        }).collect();
+        save_audit_chain_direct(key_path, "fuzz", records);
+    }
+
+    if results.len() == 1 && results[0].test_id == "health-check" {
+        return 1;
     }
 
     if crashed > 0 { 2 } else { 0 }
@@ -761,7 +842,7 @@ fn run_report(path: &str, format: Option<Format>, verbose: bool, output: Option<
         let html = report::html::build_html_probe(target, &findings);
         write_output(&html, output);
     } else {
-        let pretty = serde_json::to_string_pretty(&json).unwrap_or_default();
+        let pretty = serde_json::to_string_pretty(&json).unwrap_or_else(|e| format!("JSON serialization error: {e}"));
         write_output(&pretty, output);
     }
 
@@ -793,7 +874,13 @@ fn run_policy_init(template: Option<&str>) -> i32 {
         }),
     };
     if let Some(config) = config {
-        let json = serde_json::to_string_pretty(&config).unwrap_or_default();
+        let json = match serde_json::to_string_pretty(&config) {
+            Ok(s) => s,
+            Err(e) => {
+                eprintln!("hermes: cannot serialize policy: {e}");
+                return 1;
+            }
+        };
         if let Err(e) = fs::write(target, json) {
             eprintln!("hermes: cannot write {target}: {e}");
             return 1;

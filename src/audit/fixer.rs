@@ -125,8 +125,14 @@ pub fn apply_fixes_from_findings(findings: &[Finding], dry_run: bool) {
         }
 
         if !dry_run {
-            let pretty = serde_json::to_string_pretty(&root).unwrap_or_default();
-            if let Err(e) = fs::write(&f.file, pretty) {
+            let pretty = match serde_json::to_string_pretty(&root) {
+                Ok(s) => s,
+                Err(e) => {
+                    eprintln!("hermes: cannot serialize fix for {}: {e}", f.file);
+                    continue;
+                }
+            };
+            if let Err(e) = fs::write(&f.file, &pretty) {
                 eprintln!("hermes: cannot write {}: {e}", f.file);
             } else {
                 written.insert(&f.file);

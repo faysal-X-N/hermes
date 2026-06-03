@@ -74,6 +74,15 @@ pub fn save_chain(chain: &AuditChain, command: &str) -> Result<String, String> {
     let dir = Path::new(".hermes");
     if !dir.exists() {
         fs::create_dir_all(dir).map_err(|e| format!("Cannot create .hermes: {e}"))?;
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            if let Ok(metadata) = fs::metadata(dir) {
+                let mut perms = metadata.permissions();
+                perms.set_mode(0o700);
+                let _ = fs::set_permissions(dir, perms);
+            }
+        }
     }
     let ts = chrono::Utc::now().format("%Y%m%dT%H%M%SZ");
     let filename = format!("chain-{command}-{ts}.json");
@@ -81,6 +90,15 @@ pub fn save_chain(chain: &AuditChain, command: &str) -> Result<String, String> {
     let json = serde_json::to_string_pretty(chain)
         .map_err(|e| format!("Failed to serialize chain: {e}"))?;
     fs::write(&path, json).map_err(|e| format!("Failed to write chain file: {e}"))?;
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        if let Ok(metadata) = fs::metadata(&path) {
+            let mut perms = metadata.permissions();
+            perms.set_mode(0o600);
+            let _ = fs::set_permissions(&path, perms);
+        }
+    }
     Ok(path.display().to_string())
 }
 

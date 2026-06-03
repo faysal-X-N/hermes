@@ -5,11 +5,21 @@ pub async fn probe_token_passthrough(ctx: &ProbeContext) -> Vec<ProbeFinding> {
     let mut findings = Vec::new();
     let base = ctx.target_url.trim_end_matches('/');
 
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_secs(ctx.timeout_secs))
-        .build()
-        .unwrap();
+    let client = match crate::probe::common::build_probe_client(ctx.timeout_secs) {
+        Ok(c) => c,
+        Err(e) => {
+            findings.push(ProbeFinding {
+                rule_id: "internal-error".into(),
+                severity: Severity::Critical,
+                category: "internal".into(),
+                title: "Failed to create HTTP client".into(),
+                target: ctx.target_url.clone(),
+                evidence: e,
+                recommendation: "Check system network configuration".into(),
+            });
+            return findings;
+        }
+    };
 
     let resp = client.get(format!("{base}/.well-known/oauth-authorization-server"))
         .send()
@@ -48,11 +58,21 @@ pub async fn probe_scope_minimization(ctx: &ProbeContext) -> Vec<ProbeFinding> {
     let mut findings = Vec::new();
     let base = ctx.target_url.trim_end_matches('/');
 
-    let client = reqwest::Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(std::time::Duration::from_secs(ctx.timeout_secs))
-        .build()
-        .unwrap();
+    let client = match crate::probe::common::build_probe_client(ctx.timeout_secs) {
+        Ok(c) => c,
+        Err(e) => {
+            findings.push(ProbeFinding {
+                rule_id: "internal-error".into(),
+                severity: Severity::Critical,
+                category: "internal".into(),
+                title: "Failed to create HTTP client".into(),
+                target: ctx.target_url.clone(),
+                evidence: e,
+                recommendation: "Check system network configuration".into(),
+            });
+            return findings;
+        }
+    };
 
     let resp = client.post(format!("{base}/mcp"))
         .json(&serde_json::json!({"jsonrpc":"2.0","method":"tools/list","params":{},"id":1}))

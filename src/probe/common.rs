@@ -1,5 +1,14 @@
 use reqwest::Client;
 use serde_json::Value;
+use std::time::Duration;
+
+pub fn build_probe_client(timeout_secs: u64) -> Result<Client, String> {
+    Client::builder()
+        .danger_accept_invalid_certs(true)
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|e| format!("Failed to create HTTP client: {e}"))
+}
 
 pub async fn discover_tools(client: &Client, base: &str) -> Option<Vec<String>> {
     let body = serde_json::json!({

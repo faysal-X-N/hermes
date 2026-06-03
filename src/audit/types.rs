@@ -137,11 +137,11 @@ pub struct AuditSummary {
     pub grade: String,
 }
 
-pub fn score_from_counts(critical: u32, high: u32, medium: u32) -> (u32, String) {
-    let score = if 25 * critical + 10 * high + 3 * medium >= 100 {
+pub fn score_from_counts(critical: u32, high: u32, medium: u32, low: u32) -> (u32, String) {
+    let score = if 25 * critical + 10 * high + 3 * medium + low >= 100 {
         0
     } else {
-        100 - 25 * critical - 10 * high - 3 * medium
+        100 - 25 * critical - 10 * high - 3 * medium - low
     };
 
     let grade = match score {
@@ -169,7 +169,12 @@ pub fn compute_score(findings: &[Finding]) -> (u32, String) {
         .filter(|f| f.severity == Severity::Medium)
         .count() as u32;
 
-    score_from_counts(critical, high, medium)
+    let low = findings
+        .iter()
+        .filter(|f| f.severity == Severity::Low)
+        .count() as u32;
+
+    score_from_counts(critical, high, medium, low)
 }
 
 #[cfg(test)]

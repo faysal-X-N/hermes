@@ -1,20 +1,28 @@
 use super::payloads;
 use super::types::{FuzzContext, FuzzResult};
 use crate::audit::types::Severity;
-use crate::probe::common::discover_tools;
+use crate::probe::common::{build_probe_client, discover_tools};
 use reqwest::Client;
 use serde_json::Value;
-use std::time::Duration;
 
 pub async fn run_fuzz(ctx: &FuzzContext, test_ids: &[&str]) -> Vec<FuzzResult> {
     let mut results = Vec::new();
     let base = ctx.target_url.trim_end_matches('/');
 
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(Duration::from_secs(ctx.timeout_secs))
-        .build()
-        .unwrap();
+    let client = match build_probe_client(ctx.timeout_secs) {
+        Ok(c) => c,
+        Err(e) => {
+            results.push(FuzzResult {
+                test_id: "health-check".into(),
+                tool_name: "—".into(),
+                payload: "—".into(),
+                severity: Severity::Critical,
+                evidence: format!("Failed to create HTTP client: {e}"),
+                recommendation: "Check system network configuration".into(),
+            });
+            return results;
+        }
+    };
 
     let tools = match discover_tools(&client, base).await {
         Some(t) => t,
@@ -83,6 +91,14 @@ pub async fn run_fuzz(ctx: &FuzzContext, test_ids: &[&str]) -> Vec<FuzzResult> {
             }
             "FZ-07" => {
                 for payload in payloads::prompt_injection_payloads() {
+                    for tool in &tools {
+                        let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
+                        results.push(result);
+                    }
+                }
+            }
+            "FZ-08" => {
+                for payload in payloads::empty_payloads().into_iter().chain(payloads::oversized_payloads()) {
                     for tool in &tools {
                         let result = fuzz_tool(&client, base, test_id, tool, &payload).await;
                         results.push(result);

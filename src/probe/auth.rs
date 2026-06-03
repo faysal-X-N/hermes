@@ -1,18 +1,26 @@
 use super::types::{ProbeContext, ProbeFinding};
 use crate::audit::types::Severity;
-use reqwest::Client;
-use std::time::Duration;
 
 pub async fn probe_auth(ctx: &ProbeContext) -> Vec<ProbeFinding> {
     let mut findings = Vec::new();
     let url = &ctx.target_url;
     let base = url.trim_end_matches('/');
 
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(Duration::from_secs(ctx.timeout_secs))
-        .build()
-        .unwrap();
+    let client = match crate::probe::common::build_probe_client(ctx.timeout_secs) {
+        Ok(c) => c,
+        Err(e) => {
+            findings.push(ProbeFinding {
+                rule_id: "internal-error".into(),
+                severity: Severity::Critical,
+                category: "internal".into(),
+                title: "Failed to create HTTP client".into(),
+                target: url.clone(),
+                evidence: e,
+                recommendation: "Check system network configuration".into(),
+            });
+            return findings;
+        }
+    };
 
     let body = serde_json::json!({
         "jsonrpc": "2.0",

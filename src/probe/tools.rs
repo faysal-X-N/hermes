@@ -1,7 +1,5 @@
 use super::types::{ProbeContext, ProbeFinding};
 use crate::audit::types::Severity;
-use reqwest::Client;
-use std::time::Duration;
 
 pub struct ToolsResult {
     pub tools: Vec<String>,
@@ -13,11 +11,21 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
     let url = &ctx.target_url;
     let base = url.trim_end_matches('/');
 
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(Duration::from_secs(ctx.timeout_secs))
-        .build()
-        .unwrap();
+    let client = match crate::probe::common::build_probe_client(ctx.timeout_secs) {
+        Ok(c) => c,
+        Err(e) => {
+            findings.push(ProbeFinding {
+                rule_id: "internal-error".into(),
+                severity: Severity::Critical,
+                category: "internal".into(),
+                title: "Failed to create HTTP client".into(),
+                target: url.clone(),
+                evidence: e,
+                recommendation: "Check system network configuration".into(),
+            });
+            return ToolsResult { tools: Vec::new(), findings };
+        }
+    };
 
     let body = serde_json::json!({
         "jsonrpc": "2.0",
@@ -98,7 +106,7 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
                         if version != "2.0" {
                             findings.push(ProbeFinding {
                                 rule_id: "protocol-version".into(),
-                                severity: Severity::Info,
+                severity: Severity::High,
                                 category: "authentication".into(),
                                 title: format!("MCP protocol version: {version}"),
                                 target: url.clone(),
@@ -142,7 +150,7 @@ pub async fn probe_tools(ctx: &ProbeContext) -> ToolsResult {
         Err(e) => {
             findings.push(ProbeFinding {
                 rule_id: "health-check".into(),
-                severity: Severity::Info,
+                severity: Severity::High,
                 category: "authentication".into(),
                 title: "Unable to connect to server".into(),
                 target: url.clone(),

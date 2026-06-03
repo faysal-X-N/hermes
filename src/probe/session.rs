@@ -1,17 +1,25 @@
 use super::types::{ProbeContext, ProbeFinding};
 use crate::audit::types::Severity;
-use reqwest::Client;
-use std::time::Duration;
 
 pub async fn probe_session(ctx: &ProbeContext) -> Vec<ProbeFinding> {
     let mut findings = Vec::new();
     let base = ctx.target_url.trim_end_matches('/');
 
-    let client = Client::builder()
-        .danger_accept_invalid_certs(true)
-        .timeout(Duration::from_secs(ctx.timeout_secs))
-        .build()
-        .unwrap();
+    let client = match crate::probe::common::build_probe_client(ctx.timeout_secs) {
+        Ok(c) => c,
+        Err(e) => {
+            findings.push(ProbeFinding {
+                rule_id: "internal-error".into(),
+                severity: Severity::Critical,
+                category: "internal".into(),
+                title: "Failed to create HTTP client".into(),
+                target: ctx.target_url.clone(),
+                evidence: e,
+                recommendation: "Check system network configuration".into(),
+            });
+            return findings;
+        }
+    };
 
     let mut session_ids: Vec<String> = Vec::new();
     let sample_count = 10u32;

@@ -69,9 +69,11 @@ pub fn to_json(report: &AuditReport) -> String {
         "duration_ms": report.duration_ms,
     });
 
-    output["findings"] = serde_json::to_value(&report.findings).unwrap();
+    output["findings"] =
+        serde_json::to_value(&report.findings).expect("Failed to serialize findings to JSON value");
 
-    serde_json::to_string_pretty(&output).unwrap()
+    serde_json::to_string_pretty(&output)
+        .unwrap_or_else(|e| format!("{{\"error\": \"JSON serialization failed: {e}\"}}"))
 }
 
 fn sub_score(findings: &[Finding], category: &str) -> u32 {
