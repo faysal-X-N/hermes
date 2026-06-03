@@ -1,13 +1,11 @@
 # Hermes
 
-MCP Runtime Security Scanner &amp; Compliance Auditor
+MCP Runtime Security Scanner & Compliance Auditor
 
 [![CI](https://github.com/faysal-X-N/hermes/actions/workflows/ci.yml/badge.svg)](https://github.com/faysal-X-N/hermes/actions)
 [![Crates.io](https://img.shields.io/crates/v/hermes-mcp.svg)](https://crates.io/crates/hermes-mcp)
 [![License](https://img.shields.io/crates/l/hermes-mcp.svg)](LICENSE)
 [![Rust](https://img.shields.io/badge/Rust-1.88.0+-blue?logo=rust)](https://blog.rust-lang.org/)
-[![Tests](https://img.shields.io/badge/tests-171%20passed-brightgreen)]()
-[![Clippy](https://img.shields.io/badge/clippy-0%20warnings-brightgreen)]()
 
 > **Hermes** is a Rust-powered CLI tool for scanning, probing, and fuzzing MCP (Model Context Protocol) server configurations. It combines static config audit, runtime TLS/auth/SSRF/session probing, fuzz testing, tamper-proof audit chains, and China compliance (等保 2.0) — all in a single binary.
 
@@ -19,18 +17,18 @@ MCP Runtime Security Scanner &amp; Compliance Auditor
 
 Hermes is the most comprehensive MCP security scanner available.
 
-| Feature | Hermes | agentshield | pipelock | nono |
-|---------|:--:|:--:|:--:|:--:|
-| Static config audit | ✅ | ✅ | ❌ | ❌ |
-| Runtime probe (TLS/auth) | ✅ | ❌ | ❌ | ✅ |
-| Fuzz testing | ✅ | ❌ | ❌ | ❌ |
-| SARIF / Code Scanning | ✅ | ❌ | ❌ | ❌ |
-| Audit chain (HMAC) | ✅ | ❌ | ❌ | ❌ |
-| Policy engine + presets | ✅ | ❌ | ✅ | ✅ |
-| Auto-fix (`--fix`) | ✅ | ❌ | ❌ | ✅ |
-| GitHub Action | ✅ | ❌ | ✅ | ❌ |
-| 等保 compliance | ✅ | ❌ | ❌ | ❌ |
-| OWASP MCP Top 10 aligned | ✅ | ❌ | ❌ | ❌ |
+| Feature | Hermes | agentshield | pipelock |
+|---------|:--:|:--:|:--:|
+| Static config audit | ✅ | ✅ | ❌ |
+| Runtime probe (TLS/auth) | ✅ | ❌ | ❌ |
+| Fuzz testing | ✅ | ❌ | ❌ |
+| SARIF / Code Scanning | ✅ | ❌ | ❌ |
+| Audit chain (HMAC) | ✅ | ❌ | ❌ |
+| Policy engine + presets | ✅ | ❌ | ✅ |
+| Auto-fix (`--fix`) | ✅ | ❌ | ❌ |
+| GitHub Action | ✅ | ❌ | ✅ |
+| 等保 compliance | ✅ | ❌ | ❌ |
+| OWASP MCP Top 10 aligned | ✅ | ❌ | ❌ |
 
 Hermes rules map directly to the [OWASP MCP Top 10](https://owasp.org/www-project-mcp-top-10/):
 
@@ -49,24 +47,36 @@ Hermes rules map directly to the [OWASP MCP Top 10](https://owasp.org/www-projec
 
 ---
 
+## Installation
+
+```bash
+cargo install hermes-mcp --locked
+```
+
+Or build from source:
+
+```bash
+git clone https://github.com/faysal-X-N/hermes
+cd hermes
+cargo build --release
+```
+
 ## Quick Start
 
 ```bash
-# Install
-cargo install hermes-mcp --locked
-
-# Scan MCP configs
 hermes audit ~/my-mcp-configs/
-
-# Probe a live server
 hermes probe https://mcp.example.com
-
-# Fuzz a server
 hermes fuzz https://mcp.example.com
-
-# CI gate (critical only)
 hermes audit . --preset basic --format json
 ```
+
+## Supported Formats
+
+- MCP standard JSON (`mcp.json`, `.mcp.json`)
+- Claude Desktop configuration
+- Directory scanning (max depth 3)
+- Glob patterns (`**/*.json`)
+- Stdin input (`hermes audit -`)
 
 ---
 
@@ -96,7 +106,7 @@ hermes verify .hermes/chain-audit-*.json --audit-key .hermes/audit.key
 ### GitHub Actions
 
 ```yaml
-- uses: faysal-X-N/hermes@v0.3
+- uses: faysal-X-N/hermes@main
   with:
     path: "."
     preset: "basic"
@@ -231,7 +241,7 @@ hermes audit . --preset dengbao
 
 ### Scoring
 
-Score = max(0, 100 − 25×Critical − 10×High − 3×Medium − Low)
+Score = max(0, 100 − 25×Critical − 10×High − 3×Medium)
 
 | Grade | Range |
 |:--:|------|
@@ -314,25 +324,14 @@ Hermes is **not** a penetration testing tool:
 
 ---
 
-*v0.3.1 · 2026-06-03*
+## Security
 
-## Supported Formats
-
-- MCP standard JSON (`mcp.json`, `.mcp.json`)
-- Claude Desktop configuration
-- Directory scanning (max depth 3)
-- Glob patterns (`**/*.json`)
-- Stdin input (`hermes audit -`)
-
----
-
-## Requirements
-
-- Rust 1.88.0+
-- Single binary, no daemon
+To report a security vulnerability, please open a [private security advisory](https://github.com/faysal-X-N/hermes/security/advisories/new).
 
 ---
 
 ## License
 
 Apache-2.0. See [LICENSE](LICENSE).
+
+*v0.3.1 · 2026-06-03*

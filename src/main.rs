@@ -454,7 +454,7 @@ async fn run_probe(url: &str, timeout: u64, format: Option<Format>, verbose: boo
     let info = all_findings.iter().filter(|f| f.severity == Severity::Info).count();
 
     let (score, grade) = score_from_counts(
-        critical as u32, high as u32, medium as u32, low as u32,
+        critical as u32, high as u32, medium as u32,
     );
 
     if verbose {
